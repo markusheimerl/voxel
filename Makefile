@@ -19,11 +19,9 @@ all: shaders $(TARGET)
 shaders: $(VERT_SPV) $(FRAG_SPV)
 
 $(VERT_SPV): $(VERT_SHADER)
-	@mkdir -p $(SHADER_DIR)
 	glslc $< -o $@
 
 $(FRAG_SPV): $(FRAG_SHADER)
-	@mkdir -p $(SHADER_DIR)
 	glslc $< -o $@
 
 $(TARGET): $(OBJ)

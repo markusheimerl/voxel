@@ -104,25 +104,6 @@ static mat4 mat4_look_at(vec3 eye, vec3 center, vec3 up) {
     return m;
 }
 
-static mat4 mat4_translate(vec3 v) {
-    mat4 m = mat4_identity();
-    m.m[12] = v.x;
-    m.m[13] = v.y;
-    m.m[14] = v.z;
-    return m;
-}
-
-static mat4 mat4_rotate_y(float angle) {
-    mat4 m = mat4_identity();
-    float c = cosf(angle);
-    float s = sinf(angle);
-    m.m[0] = c;
-    m.m[2] = s;
-    m.m[8] = -s;
-    m.m[10] = c;
-    return m;
-}
-
 // ============================================================================
 // Camera
 // ============================================================================
