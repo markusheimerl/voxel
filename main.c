@@ -278,6 +278,107 @@ static RayHit raycast_blocks(vec3 origin, vec3 dir, ivec3 *cubes, int count, flo
 }
 
 // ============================================================================
+// Player Physics
+// ============================================================================
+
+typedef struct {
+    vec3 position;   // feet center
+    float velocity_y;
+    bool on_ground;
+} Player;
+
+static void player_aabb(vec3 pos, vec3 *out_min, vec3 *out_max) {
+    const float half = 0.5f;
+    const float height = 2.0f;
+    out_min->x = pos.x - half;
+    out_min->y = pos.y;
+    out_min->z = pos.z - half;
+    out_max->x = pos.x + half;
+    out_max->y = pos.y + height;
+    out_max->z = pos.z + half;
+}
+
+static bool aabb_overlap(vec3 a_min, vec3 a_max, vec3 b_min, vec3 b_max) {
+    return (a_min.x < b_max.x && a_max.x > b_min.x) &&
+           (a_min.y < b_max.y && a_max.y > b_min.y) &&
+           (a_min.z < b_max.z && a_max.z > b_min.z);
+}
+
+static void resolve_collision_x(vec3 *pos, float dx, ivec3 *cubes, int count) {
+    if (dx == 0.0f) return;
+    vec3 a_min, a_max;
+    player_aabb(*pos, &a_min, &a_max);
+    
+    for (int i = 0; i < count; i++) {
+        vec3 b_min = { cubes[i].x - 0.5f, cubes[i].y - 0.5f, cubes[i].z - 0.5f };
+        vec3 b_max = { cubes[i].x + 0.5f, cubes[i].y + 0.5f, cubes[i].z + 0.5f };
+        
+        if (aabb_overlap(a_min, a_max, b_min, b_max)) {
+            if (dx > 0.0f) {
+                pos->x = b_min.x - 0.5f - 0.001f;
+            } else {
+                pos->x = b_max.x + 0.5f + 0.001f;
+            }
+            player_aabb(*pos, &a_min, &a_max);
+        }
+    }
+}
+
+static void resolve_collision_z(vec3 *pos, float dz, ivec3 *cubes, int count) {
+    if (dz == 0.0f) return;
+    vec3 a_min, a_max;
+    player_aabb(*pos, &a_min, &a_max);
+    
+    for (int i = 0; i < count; i++) {
+        vec3 b_min = { cubes[i].x - 0.5f, cubes[i].y - 0.5f, cubes[i].z - 0.5f };
+        vec3 b_max = { cubes[i].x + 0.5f, cubes[i].y + 0.5f, cubes[i].z + 0.5f };
+        
+        if (aabb_overlap(a_min, a_max, b_min, b_max)) {
+            if (dz > 0.0f) {
+                pos->z = b_min.z - 0.5f - 0.001f;
+            } else {
+                pos->z = b_max.z + 0.5f + 0.001f;
+            }
+            player_aabb(*pos, &a_min, &a_max);
+        }
+    }
+}
+
+static void resolve_collision_y(vec3 *pos, float *vy, bool *on_ground, ivec3 *cubes, int count) {
+    vec3 a_min, a_max;
+    player_aabb(*pos, &a_min, &a_max);
+    
+    *on_ground = false;
+    
+    for (int i = 0; i < count; i++) {
+        vec3 b_min = { cubes[i].x - 0.5f, cubes[i].y - 0.5f, cubes[i].z - 0.5f };
+        vec3 b_max = { cubes[i].x + 0.5f, cubes[i].y + 0.5f, cubes[i].z + 0.5f };
+        
+        if (aabb_overlap(a_min, a_max, b_min, b_max)) {
+            if (*vy < 0.0f) {
+                pos->y = b_max.y;
+                *vy = 0.0f;
+                *on_ground = true;
+            } else if (*vy > 0.0f) {
+                pos->y = b_min.y - 2.0f - 0.001f;
+                *vy = 0.0f;
+            }
+            player_aabb(*pos, &a_min, &a_max);
+        }
+    }
+}
+
+static bool cube_overlaps_player(Player *player, ivec3 cell) {
+    vec3 a_min, a_max;
+    player_aabb(player->position, &a_min, &a_max);
+
+    vec3 b_min = { cell.x - 0.5f, cell.y - 0.5f, cell.z - 0.5f };
+    vec3 b_max = { cell.x + 0.5f, cell.y + 0.5f, cell.z + 0.5f };
+
+    return aabb_overlap(a_min, a_max, b_min, b_max);
+}
+
+// ============================================================================
 // Vulkan Helpers
 // ============================================================================
 
@@ -1185,7 +1286,25 @@ int main(void) {
     
     ivec3 *cubes = malloc(sizeof(ivec3) * MAX_CUBES);
     int cube_count = 0;
-    cube_add(cubes, &cube_count, MAX_CUBES, (ivec3){0, 0, 0});
+    
+    // 3x3 platform centered at world origin (y = 0)
+    for (int x = -1; x <= 1; x++) {
+        for (int z = -1; z <= 1; z++) {
+            cube_add(cubes, &cube_count, MAX_CUBES, (ivec3){x, 0, z});
+        }
+    }
+    
+    // ========================================================================
+    // Player Setup
+    // ========================================================================
+    
+    Player player = {0};
+    player.position = (vec3){ 0.0f, 1.5f, 0.0f }; // feet on top of platform
+    player.velocity_y = 0.0f;
+    player.on_ground = false;
+    
+    const float EYE_HEIGHT = 1.6f;
+    camera.position = vec3_add(player.position, (vec3){0.0f, EYE_HEIGHT, 0.0f});
     
     // ========================================================================
     // Timing
@@ -1270,27 +1389,53 @@ int main(void) {
                           (current_frame_time.tv_nsec - last_frame_time.tv_nsec) / 1000000000.0f;
         last_frame_time = current_frame_time;
         
-        // Camera movement
-        float camera_velocity = camera.speed * delta_time;
+        // Camera movement (XZ only)
+        vec3 forward = camera.front;
+        forward.y = 0.0f;
+        forward = vec3_normalize(forward);
         
-        if (keys['w'] || keys['W']) {
-            camera.position = vec3_add(camera.position, vec3_scale(camera.front, camera_velocity));
+        vec3 right = camera.right;
+        right.y = 0.0f;
+        right = vec3_normalize(right);
+        
+        vec3 move_dir = {0};
+        if (keys['w'] || keys['W']) move_dir = vec3_add(move_dir, forward);
+        if (keys['s'] || keys['S']) move_dir = vec3_sub(move_dir, forward);
+        if (keys['a'] || keys['A']) move_dir = vec3_sub(move_dir, right);
+        if (keys['d'] || keys['D']) move_dir = vec3_add(move_dir, right);
+        
+        if (vec3_length(move_dir) > 0.0f) {
+            move_dir = vec3_normalize(move_dir);
         }
-        if (keys['s'] || keys['S']) {
-            camera.position = vec3_sub(camera.position, vec3_scale(camera.front, camera_velocity));
+        
+        float speed = camera.speed;
+        vec3 move = vec3_scale(move_dir, speed * delta_time);
+        
+        // Jump
+        const float GRAVITY = -9.8f;
+        const float JUMP_HEIGHT = 1.2f;
+        const float JUMP_VELOCITY = sqrtf(-2.0f * GRAVITY * JUMP_HEIGHT);
+        
+        if ((keys[' '] || keys[XK_space]) && player.on_ground) {
+            player.velocity_y = JUMP_VELOCITY;
+            player.on_ground = false;
         }
-        if (keys['a'] || keys['A']) {
-            camera.position = vec3_sub(camera.position, vec3_scale(camera.right, camera_velocity));
-        }
-        if (keys['d'] || keys['D']) {
-            camera.position = vec3_add(camera.position, vec3_scale(camera.right, camera_velocity));
-        }
-        if (keys['e'] || keys['E'] || keys[' ']) {
-            camera.position = vec3_add(camera.position, vec3_scale(camera.world_up, camera_velocity));
-        }
-        if (keys['q'] || keys['Q'] || keys['c'] || keys['C']) {
-            camera.position = vec3_sub(camera.position, vec3_scale(camera.world_up, camera_velocity));
-        }
+        
+        // Apply gravity
+        player.velocity_y += GRAVITY * delta_time;
+        
+        // Move and resolve collisions
+        player.position.x += move.x;
+        resolve_collision_x(&player.position, move.x, cubes, cube_count);
+        
+        player.position.z += move.z;
+        resolve_collision_z(&player.position, move.z, cubes, cube_count);
+        
+        player.position.y += player.velocity_y * delta_time;
+        resolve_collision_y(&player.position, &player.velocity_y, &player.on_ground, cubes, cube_count);
+        
+        // Update camera position from player
+        camera.position = vec3_add(player.position, (vec3){0.0f, EYE_HEIGHT, 0.0f});
         
         // Handle block placement / destruction
         if (left_click || right_click) {
@@ -1302,7 +1447,9 @@ int main(void) {
                 if (right_click) {
                     if (!(hit.normal.x == 0 && hit.normal.y == 0 && hit.normal.z == 0)) {
                         ivec3 place_pos = ivec3_add(hit.cell, hit.normal);
-                        cube_add(cubes, &cube_count, MAX_CUBES, place_pos);
+                        if (!cube_overlaps_player(&player, place_pos)) {
+                            cube_add(cubes, &cube_count, MAX_CUBES, place_pos);
+                        }
                     }
                 }
             }
