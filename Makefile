@@ -1,14 +1,30 @@
 CC := clang
 CFLAGS := -O3 -march=native -Wall -Wextra
-LDFLAGS := -lvulkan -lX11
+LDFLAGS := -lvulkan -lX11 -lm
 
 TARGET := voxel.out
 SRC := main.c
 OBJ := $(SRC:.c=.o)
 
-.PHONY: all clean run
+SHADER_DIR := shaders
+VERT_SHADER := $(SHADER_DIR)/shader.vert
+FRAG_SHADER := $(SHADER_DIR)/shader.frag
+VERT_SPV := $(SHADER_DIR)/vert.spv
+FRAG_SPV := $(SHADER_DIR)/frag.spv
 
-all: $(TARGET)
+.PHONY: all clean run shaders
+
+all: shaders $(TARGET)
+
+shaders: $(VERT_SPV) $(FRAG_SPV)
+
+$(VERT_SPV): $(VERT_SHADER)
+	@mkdir -p $(SHADER_DIR)
+	glslc $< -o $@
+
+$(FRAG_SPV): $(FRAG_SHADER)
+	@mkdir -p $(SHADER_DIR)
+	glslc $< -o $@
 
 $(TARGET): $(OBJ)
 	$(CC) $(CFLAGS) $(OBJ) -o $@ $(LDFLAGS)
@@ -16,8 +32,9 @@ $(TARGET): $(OBJ)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-run: $(TARGET)
+run: shaders $(TARGET)
 	./$(TARGET)
 
 clean:
 	rm -f $(OBJ) $(TARGET)
+	rm -f $(VERT_SPV) $(FRAG_SPV)
