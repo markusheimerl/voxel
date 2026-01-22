@@ -26,6 +26,10 @@ typedef struct {
     float m[16];
 } mat4;
 
+typedef struct {
+    int x, y, z;
+} ivec3;
+
 // Vector operations
 static vec3 vec3_add(vec3 a, vec3 b) {
     return (vec3){ a.x + b.x, a.y + b.y, a.z + b.z };
@@ -73,12 +77,20 @@ static mat4 mat4_identity(void) {
     return m;
 }
 
+static mat4 mat4_translate(vec3 v) {
+    mat4 m = mat4_identity();
+    m.m[12] = v.x;
+    m.m[13] = v.y;
+    m.m[14] = v.z;
+    return m;
+}
+
 static mat4 mat4_perspective(float fov, float aspect, float near, float far) {
     mat4 m = {0};
     float tan_half_fov = tanf(fov * 0.5f);
     
     m.m[0] = 1.0f / (aspect * tan_half_fov);
-    m.m[5] = -1.0f / tan_half_fov;  // Negative for Vulkan's Y-down clip space
+    m.m[5] = -1.0f / tan_half_fov;
     m.m[10] = far / (near - far);
     m.m[11] = -1.0f;
     m.m[14] = -(far * near) / (far - near);
@@ -181,6 +193,89 @@ typedef struct {
     mat4 view;
     mat4 proj;
 } UniformBufferObject;
+
+// ============================================================================
+// Voxel Helpers
+// ============================================================================
+
+static bool ivec3_equal(ivec3 a, ivec3 b) {
+    return a.x == b.x && a.y == b.y && a.z == b.z;
+}
+
+static ivec3 ivec3_add(ivec3 a, ivec3 b) {
+    return (ivec3){ a.x + b.x, a.y + b.y, a.z + b.z };
+}
+
+static int sign_int(int v) {
+    return (v > 0) - (v < 0);
+}
+
+static ivec3 world_to_cell(vec3 p) {
+    return (ivec3){
+        (int)floorf(p.x + 0.5f),
+        (int)floorf(p.y + 0.5f),
+        (int)floorf(p.z + 0.5f)
+    };
+}
+
+static int cube_index_of(ivec3 *cubes, int count, ivec3 pos) {
+    for (int i = 0; i < count; i++) {
+        if (ivec3_equal(cubes[i], pos)) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+static bool cube_add(ivec3 *cubes, int *count, int max_count, ivec3 pos) {
+    if (*count >= max_count) return false;
+    if (cube_index_of(cubes, *count, pos) >= 0) return false;
+    cubes[*count] = pos;
+    (*count)++;
+    return true;
+}
+
+static bool cube_remove(ivec3 *cubes, int *count, ivec3 pos) {
+    int idx = cube_index_of(cubes, *count, pos);
+    if (idx < 0) return false;
+    cubes[idx] = cubes[*count - 1];
+    (*count)--;
+    return true;
+}
+
+typedef struct {
+    bool hit;
+    ivec3 cell;
+    ivec3 normal;
+} RayHit;
+
+static RayHit raycast_blocks(vec3 origin, vec3 dir, ivec3 *cubes, int count, float max_dist) {
+    RayHit hit = {0};
+    float step = 0.05f;
+    vec3 d = vec3_normalize(dir);
+    
+    ivec3 prev = world_to_cell(origin);
+    
+    for (float t = 0.0f; t <= max_dist; t += step) {
+        vec3 p = vec3_add(origin, vec3_scale(d, t));
+        ivec3 cell = world_to_cell(p);
+        
+        if (!ivec3_equal(cell, prev)) {
+            if (cube_index_of(cubes, count, cell) >= 0) {
+                hit.hit = true;
+                hit.cell = cell;
+                hit.normal = (ivec3){
+                    sign_int(prev.x - cell.x),
+                    sign_int(prev.y - cell.y),
+                    sign_int(prev.z - cell.z)
+                };
+                return hit;
+            }
+            prev = cell;
+        }
+    }
+    return hit;
+}
 
 // ============================================================================
 // Vulkan Helpers
@@ -366,6 +461,8 @@ int main(void) {
     const int CENTER_X = WINDOW_WIDTH / 2;
     const int CENTER_Y = WINDOW_HEIGHT / 2;
     
+    const int MAX_CUBES = 4096;
+    
     // ========================================================================
     // X11 Window Setup
     // ========================================================================
@@ -386,7 +483,7 @@ int main(void) {
     XStoreName(display, window, "Voxel Engine");
     XSelectInput(display, window, 
                  ExposureMask | KeyPressMask | KeyReleaseMask | 
-                 PointerMotionMask | StructureNotifyMask);
+                 PointerMotionMask | StructureNotifyMask | ButtonPressMask);
     
     Atom wm_delete_window = XInternAtom(display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(display, window, &wm_delete_window, 1);
@@ -704,7 +801,7 @@ int main(void) {
     
     VkDescriptorSetLayoutBinding ubo_layout_binding = {0};
     ubo_layout_binding.binding = 0;
-    ubo_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    ubo_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     ubo_layout_binding.descriptorCount = 1;
     ubo_layout_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     
@@ -962,14 +1059,25 @@ int main(void) {
     vkUnmapMemory(device, index_buffer_memory);
     
     // ========================================================================
-    // Uniform Buffers
+    // Uniform Buffers (Dynamic)
     // ========================================================================
+    
+    VkPhysicalDeviceProperties device_properties;
+    vkGetPhysicalDeviceProperties(physical_device, &device_properties);
+    
+    VkDeviceSize ubo_stride = sizeof(UniformBufferObject);
+    VkDeviceSize min_alignment = device_properties.limits.minUniformBufferOffsetAlignment;
+    if (min_alignment > 0) {
+        ubo_stride = (ubo_stride + min_alignment - 1) & ~(min_alignment - 1);
+    }
+    
+    VkDeviceSize uniform_buffer_size = ubo_stride * (VkDeviceSize)MAX_CUBES;
     
     VkBuffer *uniform_buffers = malloc(sizeof(VkBuffer) * image_count);
     VkDeviceMemory *uniform_buffers_memory = malloc(sizeof(VkDeviceMemory) * image_count);
     
     for (uint32_t i = 0; i < image_count; i++) {
-        create_buffer(device, physical_device, sizeof(UniformBufferObject),
+        create_buffer(device, physical_device, uniform_buffer_size,
                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                      &uniform_buffers[i], &uniform_buffers_memory[i]);
@@ -980,7 +1088,7 @@ int main(void) {
     // ========================================================================
     
     VkDescriptorPoolSize pool_size = {0};
-    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     pool_size.descriptorCount = image_count;
     
     VkDescriptorPoolCreateInfo descriptor_pool_info = {0};
@@ -1019,7 +1127,7 @@ int main(void) {
         descriptor_write.dstSet = descriptor_sets[i];
         descriptor_write.dstBinding = 0;
         descriptor_write.dstArrayElement = 0;
-        descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
         descriptor_write.descriptorCount = 1;
         descriptor_write.pBufferInfo = &buffer_info;
         
@@ -1072,6 +1180,14 @@ int main(void) {
     float last_mouse_y = (float)CENTER_Y;
     
     // ========================================================================
+    // Voxel World Setup
+    // ========================================================================
+    
+    ivec3 *cubes = malloc(sizeof(ivec3) * MAX_CUBES);
+    int cube_count = 0;
+    cube_add(cubes, &cube_count, MAX_CUBES, (ivec3){0, 0, 0});
+    
+    // ========================================================================
     // Timing
     // ========================================================================
     
@@ -1085,10 +1201,12 @@ int main(void) {
     bool running = true;
     
     while (running) {
-        // Process all pending X11 events (CRITICAL FIX!)
+        // Process all pending X11 events
         bool mouse_moved = false;
         float current_mouse_x = 0.0f;
         float current_mouse_y = 0.0f;
+        bool left_click = false;
+        bool right_click = false;
         
         while (XPending(display) > 0) {
             XEvent event;
@@ -1111,14 +1229,19 @@ int main(void) {
                     keys[key] = false;
                 }
             } else if (event.type == MotionNotify) {
-                // Only keep the last motion event
                 current_mouse_x = (float)event.xmotion.x;
                 current_mouse_y = (float)event.xmotion.y;
                 mouse_moved = true;
+            } else if (event.type == ButtonPress) {
+                if (event.xbutton.button == Button1) {
+                    left_click = true;
+                } else if (event.xbutton.button == Button3) {
+                    right_click = true;
+                }
             }
         }
         
-        // Process mouse movement (only once per frame!)
+        // Process mouse movement (only once per frame)
         if (mouse_moved) {
             if (first_mouse) {
                 last_mouse_x = current_mouse_x;
@@ -1133,7 +1256,7 @@ int main(void) {
             
             // Warp pointer back to center
             XWarpPointer(display, None, window, 0, 0, 0, 0, CENTER_X, CENTER_Y);
-            XFlush(display);  // CRITICAL: Flush to prevent event buildup!
+            XFlush(display);
             
             last_mouse_x = (float)CENTER_X;
             last_mouse_y = (float)CENTER_Y;
@@ -1169,6 +1292,22 @@ int main(void) {
             camera.position = vec3_sub(camera.position, vec3_scale(camera.world_up, camera_velocity));
         }
         
+        // Handle block placement / destruction
+        if (left_click || right_click) {
+            RayHit hit = raycast_blocks(camera.position, camera.front, cubes, cube_count, 6.0f);
+            if (hit.hit) {
+                if (left_click) {
+                    cube_remove(cubes, &cube_count, hit.cell);
+                }
+                if (right_click) {
+                    if (!(hit.normal.x == 0 && hit.normal.y == 0 && hit.normal.z == 0)) {
+                        ivec3 place_pos = ivec3_add(hit.cell, hit.normal);
+                        cube_add(cubes, &cube_count, MAX_CUBES, place_pos);
+                    }
+                }
+            }
+        }
+        
         // ====================================================================
         // Render Frame
         // ====================================================================
@@ -1187,17 +1326,25 @@ int main(void) {
             die("Failed to acquire swapchain image");
         }
         
-        // Update uniform buffer
-        UniformBufferObject ubo;
-        ubo.model = mat4_identity();
-        ubo.view = camera_get_view_matrix(&camera);
-        ubo.proj = mat4_perspective(45.0f * M_PI / 180.0f,
+        // Update uniform buffer array
+        mat4 view = camera_get_view_matrix(&camera);
+        mat4 proj = mat4_perspective(45.0f * M_PI / 180.0f,
                                     (float)swapchain_extent.width / (float)swapchain_extent.height,
                                     0.1f, 100.0f);
         
+        size_t mapped_size = (size_t)ubo_stride * (size_t)cube_count;
         void *ubo_data;
-        vkMapMemory(device, uniform_buffers_memory[image_index], 0, sizeof(ubo), 0, &ubo_data);
-        memcpy(ubo_data, &ubo, sizeof(ubo));
+        vkMapMemory(device, uniform_buffers_memory[image_index], 0, mapped_size, 0, &ubo_data);
+        char *ubo_ptr = (char *)ubo_data;
+        
+        for (int i = 0; i < cube_count; i++) {
+            UniformBufferObject ubo;
+            ubo.model = mat4_translate((vec3){ (float)cubes[i].x, (float)cubes[i].y, (float)cubes[i].z });
+            ubo.view = view;
+            ubo.proj = proj;
+            memcpy(ubo_ptr + (size_t)i * (size_t)ubo_stride, &ubo, sizeof(ubo));
+        }
+        
         vkUnmapMemory(device, uniform_buffers_memory[image_index]);
         
         // Record command buffer
@@ -1236,10 +1383,13 @@ int main(void) {
         vkCmdBindVertexBuffers(command_buffers[image_index], 0, 1, &vertex_buffer, offsets);
         vkCmdBindIndexBuffer(command_buffers[image_index], index_buffer, 0, VK_INDEX_TYPE_UINT16);
         
-        vkCmdBindDescriptorSets(command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                               pipeline_layout, 0, 1, &descriptor_sets[image_index], 0, NULL);
-        
-        vkCmdDrawIndexed(command_buffers[image_index], 36, 1, 0, 0, 0);
+        for (int i = 0; i < cube_count; i++) {
+            uint32_t dynamic_offset = (uint32_t)((VkDeviceSize)i * ubo_stride);
+            vkCmdBindDescriptorSets(command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                   pipeline_layout, 0, 1, &descriptor_sets[image_index],
+                                   1, &dynamic_offset);
+            vkCmdDrawIndexed(command_buffers[image_index], 36, 1, 0, 0, 0);
+        }
         
         vkCmdEndRenderPass(command_buffers[image_index]);
         
@@ -1326,6 +1476,8 @@ int main(void) {
     vkDestroyDevice(device, NULL);
     vkDestroySurfaceKHR(instance, surface, NULL);
     vkDestroyInstance(instance, NULL);
+    
+    free(cubes);
     
     XDestroyWindow(display, window);
     XCloseDisplay(display);
