@@ -2201,6 +2201,9 @@ int main(void) {
             (now.tv_nsec - last_time.tv_nsec) / 1000000000.0f;
         last_time = now;
 
+        Vec3 move_delta = vec3(0.0f, 0.0f, 0.0f);
+        bool wants_jump = false;
+
         if (mouse_captured) {
             Vec3 forward = camera.front;
             forward.y = 0.0f;
@@ -2210,48 +2213,38 @@ int main(void) {
             right.y = 0.0f;
             right = vec3_normalize(right);
 
-            Vec3 movement = vec3(0.0f, 0.0f, 0.0f);
-            if (is_key_pressed(keys, 'w') || is_key_pressed(keys, 'W')) {
-                movement = vec3_add(movement, forward);
-            }
-            if (is_key_pressed(keys, 's') || is_key_pressed(keys, 'S')) {
-                movement = vec3_sub(movement, forward);
-            }
-            if (is_key_pressed(keys, 'a') || is_key_pressed(keys, 'A')) {
-                movement = vec3_sub(movement, right);
-            }
-            if (is_key_pressed(keys, 'd') || is_key_pressed(keys, 'D')) {
-                movement = vec3_add(movement, right);
+            Vec3 movement_dir = vec3(0.0f, 0.0f, 0.0f);
+            if (is_key_pressed(keys, 'w') || is_key_pressed(keys, 'W')) movement_dir = vec3_add(movement_dir, forward);
+            if (is_key_pressed(keys, 's') || is_key_pressed(keys, 'S')) movement_dir = vec3_sub(movement_dir, forward);
+            if (is_key_pressed(keys, 'a') || is_key_pressed(keys, 'A')) movement_dir = vec3_sub(movement_dir, right);
+            if (is_key_pressed(keys, 'd') || is_key_pressed(keys, 'D')) movement_dir = vec3_add(movement_dir, right);
+
+            if (vec3_length(movement_dir) > 0.0f) {
+                movement_dir = vec3_normalize(movement_dir);
             }
 
-            if (vec3_length(movement) > 0.0f) {
-                movement = vec3_normalize(movement);
-            }
-
-            float speed = camera.movement_speed;
-            Vec3 delta = vec3_scale(movement, speed * delta_time);
-
-            bool wants_jump = is_key_pressed(keys, ' ') || is_key_pressed(keys, XK_space);
-
-            if (wants_jump && player.on_ground) {
-                player.velocity_y = JUMP_VELOCITY;
-                player.on_ground = false;
-            }
-
-            player.velocity_y -= GRAVITY * delta_time;
-
-            player.position.x += delta.x;
-            resolve_collision_axis(&player.position, delta.x, 0, blocks, block_count);
-
-            player.position.z += delta.z;
-            resolve_collision_axis(&player.position, delta.z, 2, blocks, block_count);
-
-            player.position.y += player.velocity_y * delta_time;
-            resolve_collision_y(&player.position, &player.velocity_y, &player.on_ground,
-                                blocks, block_count);
-
-            camera.position = vec3_add(player.position, vec3(0.0f, EYE_HEIGHT, 0.0f));
+            move_delta = vec3_scale(movement_dir, camera.movement_speed * delta_time);
+            wants_jump = is_key_pressed(keys, ' ') || is_key_pressed(keys, XK_space);
         }
+
+        if (wants_jump && player.on_ground) {
+            player.velocity_y = JUMP_VELOCITY;
+            player.on_ground = false;
+        }
+
+        player.velocity_y -= GRAVITY * delta_time;
+
+        player.position.x += move_delta.x;
+        resolve_collision_axis(&player.position, move_delta.x, 0, blocks, block_count);
+
+        player.position.z += move_delta.z;
+        resolve_collision_axis(&player.position, move_delta.z, 2, blocks, block_count);
+
+        player.position.y += player.velocity_y * delta_time;
+        resolve_collision_y(&player.position, &player.velocity_y, &player.on_ground,
+                            blocks, block_count);
+
+        camera.position = vec3_add(player.position, vec3(0.0f, EYE_HEIGHT, 0.0f));
 
         RayHit ray_hit = raycast_blocks(camera.position, camera.front, blocks, block_count, 6.0f);
 
