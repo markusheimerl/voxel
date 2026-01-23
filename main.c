@@ -180,7 +180,7 @@ static void camera_init(Camera *cam) {
     cam->world_up         = vec3(0.0f, 1.0f, 0.0f);
     cam->yaw              = -90.0f;
     cam->pitch            = 0.0f;
-    cam->movement_speed   = 3.0f;
+    cam->movement_speed   = 5.0f;
     cam->mouse_sensitivity = 0.1f;
     camera_update_axes(cam);
 }
