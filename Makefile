@@ -31,7 +31,7 @@ $(TARGET): $(OBJ)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 run: shaders $(TARGET)
-	./$(TARGET)
+	@./$(TARGET)
 
 clean:
 	rm -f $(OBJ) $(TARGET)
