@@ -113,7 +113,7 @@ static void camera_init(Camera *cam) {
     cam->world_up = (vec3){ 0.0f, 1.0f, 0.0f };
     cam->yaw = -90.0f;
     cam->pitch = 0.0f;
-    cam->speed = 2.5f;
+    cam->speed = 3.0f;
     cam->sensitivity = 0.1f;
     camera_update_vectors(cam);
 }
@@ -248,10 +248,11 @@ typedef struct {
     vec3 position;   // feet center
     float velocity_y;
     bool on_ground;
+    float jump_time;
 } Player;
 
 static void player_aabb(vec3 pos, vec3 *out_min, vec3 *out_max) {
-    const float half = 0.5f;
+    const float half = 0.4f;
     const float height = 2.0f;
     out_min->x = pos.x - half;
     out_min->y = pos.y;
@@ -278,9 +279,9 @@ static void resolve_collision_x(vec3 *pos, float dx, Block *blocks, int count) {
 
         if (aabb_overlap(a_min, a_max, b_min, b_max)) {
             if (dx > 0.0f) {
-                pos->x = b_min.x - 0.5f - 0.001f;
+                pos->x = b_min.x - 0.4f - 0.001f;
             } else {
-                pos->x = b_max.x + 0.5f + 0.001f;
+                pos->x = b_max.x + 0.4f + 0.001f;
             }
             player_aabb(*pos, &a_min, &a_max);
         }
@@ -298,9 +299,9 @@ static void resolve_collision_z(vec3 *pos, float dz, Block *blocks, int count) {
 
         if (aabb_overlap(a_min, a_max, b_min, b_max)) {
             if (dz > 0.0f) {
-                pos->z = b_min.z - 0.5f - 0.001f;
+                pos->z = b_min.z - 0.4f - 0.001f;
             } else {
-                pos->z = b_max.z + 0.5f + 0.001f;
+                pos->z = b_max.z + 0.4f + 0.001f;
             }
             player_aabb(*pos, &a_min, &a_max);
         }
@@ -811,6 +812,81 @@ static void create_texture(VkDevice device, VkPhysicalDevice physical_device,
     texture->height = h;
 }
 
+static void create_texture_solid_color(VkDevice device, VkPhysicalDevice physical_device,
+                                       VkCommandPool command_pool, VkQueue graphics_queue,
+                                       uint8_t r, uint8_t g, uint8_t b, uint8_t a,
+                                       Texture *texture) {
+    uint8_t pixels[4] = { r, g, b, a };
+    uint32_t w = 1, h = 1;
+
+    VkDeviceSize image_size = 4;
+
+    VkBuffer staging_buffer;
+    VkDeviceMemory staging_memory;
+    create_buffer(device, physical_device, image_size,
+                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &staging_buffer, &staging_memory);
+
+    void *data;
+    vkMapMemory(device, staging_memory, 0, image_size, 0, &data);
+    memcpy(data, pixels, (size_t)image_size);
+    vkUnmapMemory(device, staging_memory);
+
+    create_image(device, physical_device, w, h, VK_FORMAT_R8G8B8A8_SRGB,
+                 VK_IMAGE_TILING_OPTIMAL,
+                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                 &texture->image, &texture->memory);
+
+    transition_image_layout(device, command_pool, graphics_queue,
+                            texture->image, VK_FORMAT_R8G8B8A8_SRGB,
+                            VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    copy_buffer_to_image(device, command_pool, graphics_queue,
+                         staging_buffer, texture->image, w, h);
+
+    transition_image_layout(device, command_pool, graphics_queue,
+                            texture->image, VK_FORMAT_R8G8B8A8_SRGB,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    vkDestroyBuffer(device, staging_buffer, NULL);
+    vkFreeMemory(device, staging_memory, NULL);
+
+    VkImageViewCreateInfo view_info = {0};
+    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.image = texture->image;
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    view_info.subresourceRange.baseMipLevel = 0;
+    view_info.subresourceRange.levelCount = 1;
+    view_info.subresourceRange.baseArrayLayer = 0;
+    view_info.subresourceRange.layerCount = 1;
+
+    VK_CHECK(vkCreateImageView(device, &view_info, NULL, &texture->view));
+
+    VkSamplerCreateInfo sampler_info = {0};
+    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_info.magFilter = VK_FILTER_NEAREST;
+    sampler_info.minFilter = VK_FILTER_NEAREST;
+    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    sampler_info.anisotropyEnable = VK_FALSE;
+    sampler_info.maxAnisotropy = 1.0f;
+    sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    sampler_info.unnormalizedCoordinates = VK_FALSE;
+    sampler_info.compareEnable = VK_FALSE;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+
+    VK_CHECK(vkCreateSampler(device, &sampler_info, NULL, &texture->sampler));
+
+    texture->width = w;
+    texture->height = h;
+}
+
 // ============================================================================
 // Main
 // ============================================================================
@@ -824,6 +900,7 @@ int main(void) {
     const int CENTER_Y = WINDOW_HEIGHT / 2;
 
     const int MAX_BLOCKS = 4096;
+    const int EXTRA_UBOS = 2; // highlight + crosshair
 
     // ========================================================================
     // X11 Window Setup
@@ -960,7 +1037,11 @@ int main(void) {
 
     const char *device_extensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 
+    VkPhysicalDeviceFeatures supported_features;
+    vkGetPhysicalDeviceFeatures(physical_device, &supported_features);
+
     VkPhysicalDeviceFeatures device_features = {0};
+    device_features.wideLines = supported_features.wideLines ? VK_TRUE : VK_FALSE;
 
     VkDeviceCreateInfo device_info = {0};
     device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -1152,7 +1233,7 @@ int main(void) {
     VkDescriptorSetLayoutBinding sampler_binding = {0};
     sampler_binding.binding = 1;
     sampler_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    sampler_binding.descriptorCount = 2; // dirt + stone
+    sampler_binding.descriptorCount = 2; // dirt + stone/black
     sampler_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutBinding bindings[2] = { ubo_layout_binding, sampler_binding };
@@ -1179,7 +1260,7 @@ int main(void) {
     VK_CHECK(vkCreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout));
 
     // ========================================================================
-    // Graphics Pipeline
+    // Graphics Pipelines (Solid + Wireframe + Crosshair)
     // ========================================================================
 
     VkPipelineShaderStageCreateInfo shader_stages[2] = {0};
@@ -1218,10 +1299,15 @@ int main(void) {
     vertex_input_info.vertexAttributeDescriptionCount = 2;
     vertex_input_info.pVertexAttributeDescriptions = vertex_attributes;
 
-    VkPipelineInputAssemblyStateCreateInfo input_assembly = {0};
-    input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    input_assembly.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-    input_assembly.primitiveRestartEnable = VK_FALSE;
+    VkPipelineInputAssemblyStateCreateInfo input_assembly_tri = {0};
+    input_assembly_tri.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    input_assembly_tri.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    input_assembly_tri.primitiveRestartEnable = VK_FALSE;
+
+    VkPipelineInputAssemblyStateCreateInfo input_assembly_lines = {0};
+    input_assembly_lines.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    input_assembly_lines.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    input_assembly_lines.primitiveRestartEnable = VK_FALSE;
 
     VkViewport viewport = {0};
     viewport.x = 0.0f;
@@ -1243,28 +1329,67 @@ int main(void) {
     viewport_state.scissorCount = 1;
     viewport_state.pScissors = &scissor;
 
-    VkPipelineRasterizationStateCreateInfo rasterizer = {0};
-    rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    rasterizer.depthClampEnable = VK_FALSE;
-    rasterizer.rasterizerDiscardEnable = VK_FALSE;
-    rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-    rasterizer.lineWidth = 1.0f;
-    rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    rasterizer.depthBiasEnable = VK_FALSE;
+    float wire_line_width = device_features.wideLines ? 3.5f : 1.0f;
+    float cross_line_width = device_features.wideLines ? 3.0f : 1.0f;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer_solid = {0};
+    rasterizer_solid.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer_solid.depthClampEnable = VK_FALSE;
+    rasterizer_solid.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer_solid.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer_solid.lineWidth = 1.0f;
+    rasterizer_solid.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterizer_solid.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer_solid.depthBiasEnable = VK_FALSE;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer_wire = {0};
+    rasterizer_wire.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer_wire.depthClampEnable = VK_FALSE;
+    rasterizer_wire.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer_wire.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer_wire.lineWidth = wire_line_width;
+    rasterizer_wire.cullMode = VK_CULL_MODE_NONE;
+    rasterizer_wire.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer_wire.depthBiasEnable = VK_FALSE;
+
+    VkPipelineRasterizationStateCreateInfo rasterizer_cross = {0};
+    rasterizer_cross.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterizer_cross.depthClampEnable = VK_FALSE;
+    rasterizer_cross.rasterizerDiscardEnable = VK_FALSE;
+    rasterizer_cross.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterizer_cross.lineWidth = cross_line_width;
+    rasterizer_cross.cullMode = VK_CULL_MODE_NONE;
+    rasterizer_cross.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    rasterizer_cross.depthBiasEnable = VK_FALSE;
 
     VkPipelineMultisampleStateCreateInfo multisampling = {0};
     multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisampling.sampleShadingEnable = VK_FALSE;
     multisampling.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-    VkPipelineDepthStencilStateCreateInfo depth_stencil = {0};
-    depth_stencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_stencil.depthTestEnable = VK_TRUE;
-    depth_stencil.depthWriteEnable = VK_TRUE;
-    depth_stencil.depthCompareOp = VK_COMPARE_OP_LESS;
-    depth_stencil.depthBoundsTestEnable = VK_FALSE;
-    depth_stencil.stencilTestEnable = VK_FALSE;
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_solid = {0};
+    depth_stencil_solid.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depth_stencil_solid.depthTestEnable = VK_TRUE;
+    depth_stencil_solid.depthWriteEnable = VK_TRUE;
+    depth_stencil_solid.depthCompareOp = VK_COMPARE_OP_LESS;
+    depth_stencil_solid.depthBoundsTestEnable = VK_FALSE;
+    depth_stencil_solid.stencilTestEnable = VK_FALSE;
+
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_wire = {0};
+    depth_stencil_wire.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depth_stencil_wire.depthTestEnable = VK_TRUE;
+    depth_stencil_wire.depthWriteEnable = VK_FALSE;
+    depth_stencil_wire.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+    depth_stencil_wire.depthBoundsTestEnable = VK_FALSE;
+    depth_stencil_wire.stencilTestEnable = VK_FALSE;
+
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_cross = {0};
+    depth_stencil_cross.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    depth_stencil_cross.depthTestEnable = VK_FALSE;
+    depth_stencil_cross.depthWriteEnable = VK_FALSE;
+    depth_stencil_cross.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+    depth_stencil_cross.depthBoundsTestEnable = VK_FALSE;
+    depth_stencil_cross.stencilTestEnable = VK_FALSE;
 
     VkPipelineColorBlendAttachmentState color_blend_attachment = {0};
     color_blend_attachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
@@ -1284,11 +1409,11 @@ int main(void) {
     pipeline_info.stageCount = 2;
     pipeline_info.pStages = shader_stages;
     pipeline_info.pVertexInputState = &vertex_input_info;
-    pipeline_info.pInputAssemblyState = &input_assembly;
+    pipeline_info.pInputAssemblyState = &input_assembly_tri;
     pipeline_info.pViewportState = &viewport_state;
-    pipeline_info.pRasterizationState = &rasterizer;
+    pipeline_info.pRasterizationState = &rasterizer_solid;
     pipeline_info.pMultisampleState = &multisampling;
-    pipeline_info.pDepthStencilState = &depth_stencil;
+    pipeline_info.pDepthStencilState = &depth_stencil_solid;
     pipeline_info.pColorBlendState = &color_blending;
     pipeline_info.layout = pipeline_layout;
     pipeline_info.renderPass = render_pass;
@@ -1297,6 +1422,24 @@ int main(void) {
     VkPipeline graphics_pipeline;
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info,
                                       NULL, &graphics_pipeline));
+
+    VkGraphicsPipelineCreateInfo wire_info = pipeline_info;
+    wire_info.pInputAssemblyState = &input_assembly_lines;
+    wire_info.pRasterizationState = &rasterizer_wire;
+    wire_info.pDepthStencilState = &depth_stencil_wire;
+
+    VkPipeline wireframe_pipeline;
+    VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &wire_info,
+                                      NULL, &wireframe_pipeline));
+
+    VkGraphicsPipelineCreateInfo cross_info = pipeline_info;
+    cross_info.pInputAssemblyState = &input_assembly_lines;
+    cross_info.pRasterizationState = &rasterizer_cross;
+    cross_info.pDepthStencilState = &depth_stencil_cross;
+
+    VkPipeline crosshair_pipeline;
+    VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &cross_info,
+                                      NULL, &crosshair_pipeline));
 
     vkDestroyShaderModule(device, vert_shader, NULL);
     vkDestroyShaderModule(device, frag_shader, NULL);
@@ -1340,6 +1483,10 @@ int main(void) {
     Texture textures[2];
     create_texture(device, physical_device, command_pool, graphics_queue, "dirt.png", &textures[0]);
     create_texture(device, physical_device, command_pool, graphics_queue, "stone.png", &textures[1]);
+
+    Texture black_texture;
+    create_texture_solid_color(device, physical_device, command_pool, graphics_queue,
+                               0, 0, 0, 255, &black_texture);
 
     // ========================================================================
     // Vertex & Index Buffers (Cube)
@@ -1392,6 +1539,24 @@ int main(void) {
         22, 21, 20, 20, 23, 22  // Left
     };
 
+    // Edge-only vertices & indices (12 edges, line list)
+    Vertex edge_vertices[] = {
+        {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}}, // 0
+        {{ 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}}, // 1
+        {{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}}, // 2
+        {{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}}, // 3
+        {{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}}, // 4
+        {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}}, // 5
+        {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}}, // 6
+        {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}}, // 7
+    };
+
+    uint16_t edge_indices[] = {
+        0, 1,  1, 2,  2, 3,  3, 0, // front
+        4, 5,  5, 6,  6, 7,  7, 4, // back
+        0, 4,  1, 5,  2, 6,  3, 7  // sides
+    };
+
     VkBuffer vertex_buffer;
     VkDeviceMemory vertex_buffer_memory;
 
@@ -1418,6 +1583,56 @@ int main(void) {
     memcpy(index_data, indices, sizeof(indices));
     vkUnmapMemory(device, index_buffer_memory);
 
+    VkBuffer edge_vertex_buffer;
+    VkDeviceMemory edge_vertex_buffer_memory;
+
+    create_buffer(device, physical_device, sizeof(edge_vertices),
+                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 &edge_vertex_buffer, &edge_vertex_buffer_memory);
+
+    void *edge_vtx_data;
+    vkMapMemory(device, edge_vertex_buffer_memory, 0, sizeof(edge_vertices), 0, &edge_vtx_data);
+    memcpy(edge_vtx_data, edge_vertices, sizeof(edge_vertices));
+    vkUnmapMemory(device, edge_vertex_buffer_memory);
+
+    VkBuffer edge_index_buffer;
+    VkDeviceMemory edge_index_buffer_memory;
+
+    create_buffer(device, physical_device, sizeof(edge_indices),
+                 VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 &edge_index_buffer, &edge_index_buffer_memory);
+
+    void *edge_idx_data;
+    vkMapMemory(device, edge_index_buffer_memory, 0, sizeof(edge_indices), 0, &edge_idx_data);
+    memcpy(edge_idx_data, edge_indices, sizeof(edge_indices));
+    vkUnmapMemory(device, edge_index_buffer_memory);
+
+    // Crosshair vertex buffer
+    const float crosshair_size = 0.03f;
+    float cross_x_scale = (float)swapchain_extent.height / (float)swapchain_extent.width;
+
+    Vertex crosshair_vertices[] = {
+        {{-crosshair_size * cross_x_scale,  0.0f, 0.0f}, {0.0f, 0.0f}},
+        {{ crosshair_size * cross_x_scale,  0.0f, 0.0f}, {1.0f, 0.0f}},
+        {{ 0.0f, -crosshair_size, 0.0f}, {0.0f, 0.0f}},
+        {{ 0.0f,  crosshair_size, 0.0f}, {1.0f, 0.0f}},
+    };
+
+    VkBuffer crosshair_vertex_buffer;
+    VkDeviceMemory crosshair_vertex_memory;
+
+    create_buffer(device, physical_device, sizeof(crosshair_vertices),
+                 VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 &crosshair_vertex_buffer, &crosshair_vertex_memory);
+
+    void *cross_data;
+    vkMapMemory(device, crosshair_vertex_memory, 0, sizeof(crosshair_vertices), 0, &cross_data);
+    memcpy(cross_data, crosshair_vertices, sizeof(crosshair_vertices));
+    vkUnmapMemory(device, crosshair_vertex_memory);
+
     // ========================================================================
     // Uniform Buffers (Dynamic)
     // ========================================================================
@@ -1431,7 +1646,7 @@ int main(void) {
         ubo_stride = (ubo_stride + min_alignment - 1) & ~(min_alignment - 1);
     }
 
-    VkDeviceSize uniform_buffer_size = ubo_stride * (VkDeviceSize)MAX_BLOCKS;
+    VkDeviceSize uniform_buffer_size = ubo_stride * (VkDeviceSize)(MAX_BLOCKS + EXTRA_UBOS);
 
     VkBuffer *uniform_buffers = malloc(sizeof(VkBuffer) * image_count);
     VkDeviceMemory *uniform_buffers_memory = malloc(sizeof(VkDeviceMemory) * image_count);
@@ -1449,15 +1664,15 @@ int main(void) {
 
     VkDescriptorPoolSize pool_sizes[2] = {0};
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    pool_sizes[0].descriptorCount = image_count;
+    pool_sizes[0].descriptorCount = image_count * 2;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_sizes[1].descriptorCount = image_count * 2;
+    pool_sizes[1].descriptorCount = image_count * 4;
 
     VkDescriptorPoolCreateInfo descriptor_pool_info = {0};
     descriptor_pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     descriptor_pool_info.poolSizeCount = 2;
     descriptor_pool_info.pPoolSizes = pool_sizes;
-    descriptor_pool_info.maxSets = image_count;
+    descriptor_pool_info.maxSets = image_count * 2;
 
     VkDescriptorPool descriptor_pool;
     VK_CHECK(vkCreateDescriptorPool(device, &descriptor_pool_info, NULL, &descriptor_pool));
@@ -1473,8 +1688,11 @@ int main(void) {
     descriptor_alloc_info.descriptorSetCount = image_count;
     descriptor_alloc_info.pSetLayouts = layouts;
 
-    VkDescriptorSet *descriptor_sets = malloc(sizeof(VkDescriptorSet) * image_count);
-    VK_CHECK(vkAllocateDescriptorSets(device, &descriptor_alloc_info, descriptor_sets));
+    VkDescriptorSet *descriptor_sets_normal = malloc(sizeof(VkDescriptorSet) * image_count);
+    VK_CHECK(vkAllocateDescriptorSets(device, &descriptor_alloc_info, descriptor_sets_normal));
+
+    VkDescriptorSet *descriptor_sets_highlight = malloc(sizeof(VkDescriptorSet) * image_count);
+    VK_CHECK(vkAllocateDescriptorSets(device, &descriptor_alloc_info, descriptor_sets_highlight));
 
     free(layouts);
 
@@ -1484,34 +1702,63 @@ int main(void) {
         buffer_info.offset = 0;
         buffer_info.range = sizeof(UniformBufferObject);
 
-        VkDescriptorImageInfo image_infos[2] = {0};
-        image_infos[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        image_infos[0].imageView = textures[0].view;
-        image_infos[0].sampler = textures[0].sampler;
+        // Normal set (dirt + stone)
+        VkDescriptorImageInfo image_infos_normal[2] = {0};
+        image_infos_normal[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_infos_normal[0].imageView = textures[0].view;
+        image_infos_normal[0].sampler = textures[0].sampler;
 
-        image_infos[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        image_infos[1].imageView = textures[1].view;
-        image_infos[1].sampler = textures[1].sampler;
+        image_infos_normal[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_infos_normal[1].imageView = textures[1].view;
+        image_infos_normal[1].sampler = textures[1].sampler;
 
-        VkWriteDescriptorSet descriptor_writes[2] = {0};
+        VkWriteDescriptorSet descriptor_writes_normal[2] = {0};
+        descriptor_writes_normal[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptor_writes_normal[0].dstSet = descriptor_sets_normal[i];
+        descriptor_writes_normal[0].dstBinding = 0;
+        descriptor_writes_normal[0].dstArrayElement = 0;
+        descriptor_writes_normal[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        descriptor_writes_normal[0].descriptorCount = 1;
+        descriptor_writes_normal[0].pBufferInfo = &buffer_info;
 
-        descriptor_writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptor_writes[0].dstSet = descriptor_sets[i];
-        descriptor_writes[0].dstBinding = 0;
-        descriptor_writes[0].dstArrayElement = 0;
-        descriptor_writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-        descriptor_writes[0].descriptorCount = 1;
-        descriptor_writes[0].pBufferInfo = &buffer_info;
+        descriptor_writes_normal[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptor_writes_normal[1].dstSet = descriptor_sets_normal[i];
+        descriptor_writes_normal[1].dstBinding = 1;
+        descriptor_writes_normal[1].dstArrayElement = 0;
+        descriptor_writes_normal[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptor_writes_normal[1].descriptorCount = 2;
+        descriptor_writes_normal[1].pImageInfo = image_infos_normal;
 
-        descriptor_writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        descriptor_writes[1].dstSet = descriptor_sets[i];
-        descriptor_writes[1].dstBinding = 1;
-        descriptor_writes[1].dstArrayElement = 0;
-        descriptor_writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        descriptor_writes[1].descriptorCount = 2;
-        descriptor_writes[1].pImageInfo = image_infos;
+        vkUpdateDescriptorSets(device, 2, descriptor_writes_normal, 0, NULL);
 
-        vkUpdateDescriptorSets(device, 2, descriptor_writes, 0, NULL);
+        // Highlight set (dirt + black)
+        VkDescriptorImageInfo image_infos_highlight[2] = {0};
+        image_infos_highlight[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_infos_highlight[0].imageView = textures[0].view;
+        image_infos_highlight[0].sampler = textures[0].sampler;
+
+        image_infos_highlight[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_infos_highlight[1].imageView = black_texture.view;
+        image_infos_highlight[1].sampler = black_texture.sampler;
+
+        VkWriteDescriptorSet descriptor_writes_highlight[2] = {0};
+        descriptor_writes_highlight[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptor_writes_highlight[0].dstSet = descriptor_sets_highlight[i];
+        descriptor_writes_highlight[0].dstBinding = 0;
+        descriptor_writes_highlight[0].dstArrayElement = 0;
+        descriptor_writes_highlight[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+        descriptor_writes_highlight[0].descriptorCount = 1;
+        descriptor_writes_highlight[0].pBufferInfo = &buffer_info;
+
+        descriptor_writes_highlight[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        descriptor_writes_highlight[1].dstSet = descriptor_sets_highlight[i];
+        descriptor_writes_highlight[1].dstBinding = 1;
+        descriptor_writes_highlight[1].dstArrayElement = 0;
+        descriptor_writes_highlight[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        descriptor_writes_highlight[1].descriptorCount = 2;
+        descriptor_writes_highlight[1].pImageInfo = image_infos_highlight;
+
+        vkUpdateDescriptorSets(device, 2, descriptor_writes_highlight, 0, NULL);
     }
 
     // ========================================================================
@@ -1566,9 +1813,9 @@ int main(void) {
     Block *blocks = malloc(sizeof(Block) * MAX_BLOCKS);
     int block_count = 0;
 
-    for (int x = -1; x <= 1; x++) {
-        for (int z = -1; z <= 1; z++) {
-            bool is_corner = (abs(x) == 1) && (abs(z) == 1);
+    for (int x = -7; x <= 7; x++) {
+        for (int z = -7; z <= 7; z++) {
+            bool is_corner = (abs(x) == 7) && (abs(z) == 7);
             uint8_t type = is_corner ? BLOCK_STONE : BLOCK_DIRT;
             block_add(blocks, &block_count, MAX_BLOCKS, (ivec3){x, 0, z}, type);
         }
@@ -1582,6 +1829,7 @@ int main(void) {
     player.position = (vec3){ 0.0f, 1.5f, 0.0f };
     player.velocity_y = 0.0f;
     player.on_ground = false;
+    player.jump_time = 0.0f;
 
     const float EYE_HEIGHT = 1.6f;
     camera.position = vec3_add(player.position, (vec3){0.0f, EYE_HEIGHT, 0.0f});
@@ -1684,16 +1932,18 @@ int main(void) {
         float speed = camera.speed;
         vec3 move = vec3_scale(move_dir, speed * delta_time);
 
-        const float GRAVITY = -9.8f;
+        const float GRAVITY = 17.0f;
         const float JUMP_HEIGHT = 1.2f;
-        const float JUMP_VELOCITY = sqrtf(-2.0f * GRAVITY * JUMP_HEIGHT);
+        const float JUMP_VELOCITY = sqrtf(2.0f * GRAVITY * JUMP_HEIGHT);
 
-        if ((keys[' '] || keys[XK_space]) && player.on_ground) {
+        bool want_jump = (keys[' '] || keys[XK_space]);
+
+        if (want_jump && player.on_ground) {
             player.velocity_y = JUMP_VELOCITY;
             player.on_ground = false;
         }
 
-        player.velocity_y += GRAVITY * delta_time;
+        player.velocity_y -= GRAVITY * delta_time;
 
         player.position.x += move.x;
         resolve_collision_x(&player.position, move.x, blocks, block_count);
@@ -1706,15 +1956,16 @@ int main(void) {
 
         camera.position = vec3_add(player.position, (vec3){0.0f, EYE_HEIGHT, 0.0f});
 
+        RayHit look_hit = raycast_blocks(camera.position, camera.front, blocks, block_count, 6.0f);
+
         if (left_click || right_click) {
-            RayHit hit = raycast_blocks(camera.position, camera.front, blocks, block_count, 6.0f);
-            if (hit.hit) {
+            if (look_hit.hit) {
                 if (left_click) {
-                    block_remove(blocks, &block_count, hit.cell);
+                    block_remove(blocks, &block_count, look_hit.cell);
                 }
                 if (right_click) {
-                    if (!(hit.normal.x == 0 && hit.normal.y == 0 && hit.normal.z == 0)) {
-                        ivec3 place_pos = ivec3_add(hit.cell, hit.normal);
+                    if (!(look_hit.normal.x == 0 && look_hit.normal.y == 0 && look_hit.normal.z == 0)) {
+                        ivec3 place_pos = ivec3_add(look_hit.cell, look_hit.normal);
                         if (!block_overlaps_player(&player, place_pos)) {
                             block_add(blocks, &block_count, MAX_BLOCKS, place_pos, current_block_type);
                         }
@@ -1746,7 +1997,10 @@ int main(void) {
                                     (float)swapchain_extent.width / (float)swapchain_extent.height,
                                     0.1f, 100.0f);
 
-        size_t mapped_size = (size_t)ubo_stride * (size_t)block_count;
+        int highlight_index = block_count;
+        int crosshair_index = block_count + 1;
+
+        size_t mapped_size = (size_t)ubo_stride * (size_t)(block_count + EXTRA_UBOS);
         void *ubo_data;
         vkMapMemory(device, uniform_buffers_memory[image_index], 0, mapped_size, 0, &ubo_data);
         char *ubo_ptr = (char *)ubo_data;
@@ -1759,6 +2013,22 @@ int main(void) {
             ubo.block_type = (uint32_t)blocks[i].type;
             memcpy(ubo_ptr + (size_t)i * (size_t)ubo_stride, &ubo, sizeof(ubo));
         }
+
+        if (look_hit.hit) {
+            UniformBufferObject ubo;
+            ubo.model = mat4_translate((vec3){ (float)look_hit.cell.x, (float)look_hit.cell.y, (float)look_hit.cell.z });
+            ubo.view = view;
+            ubo.proj = proj;
+            ubo.block_type = 1; // black texture in highlight set
+            memcpy(ubo_ptr + (size_t)highlight_index * (size_t)ubo_stride, &ubo, sizeof(ubo));
+        }
+
+        UniformBufferObject cross_ubo;
+        cross_ubo.model = mat4_identity();
+        cross_ubo.view = mat4_identity();
+        cross_ubo.proj = mat4_identity();
+        cross_ubo.block_type = 1; // black texture in highlight set
+        memcpy(ubo_ptr + (size_t)crosshair_index * (size_t)ubo_stride, &cross_ubo, sizeof(cross_ubo));
 
         vkUnmapMemory(device, uniform_buffers_memory[image_index]);
 
@@ -1800,10 +2070,36 @@ int main(void) {
         for (int i = 0; i < block_count; i++) {
             uint32_t dynamic_offset = (uint32_t)((VkDeviceSize)i * ubo_stride);
             vkCmdBindDescriptorSets(command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                   pipeline_layout, 0, 1, &descriptor_sets[image_index],
+                                   pipeline_layout, 0, 1, &descriptor_sets_normal[image_index],
                                    1, &dynamic_offset);
             vkCmdDrawIndexed(command_buffers[image_index], 36, 1, 0, 0, 0);
         }
+
+        if (look_hit.hit) {
+            vkCmdBindPipeline(command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                             wireframe_pipeline);
+
+            VkDeviceSize edge_offsets[] = {0};
+            vkCmdBindVertexBuffers(command_buffers[image_index], 0, 1, &edge_vertex_buffer, edge_offsets);
+            vkCmdBindIndexBuffer(command_buffers[image_index], edge_index_buffer, 0, VK_INDEX_TYPE_UINT16);
+
+            uint32_t dynamic_offset = (uint32_t)((VkDeviceSize)highlight_index * ubo_stride);
+            vkCmdBindDescriptorSets(command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                   pipeline_layout, 0, 1, &descriptor_sets_highlight[image_index],
+                                   1, &dynamic_offset);
+            vkCmdDrawIndexed(command_buffers[image_index], 24, 1, 0, 0, 0);
+        }
+
+        vkCmdBindPipeline(command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                         crosshair_pipeline);
+        VkDeviceSize cross_offsets[] = {0};
+        vkCmdBindVertexBuffers(command_buffers[image_index], 0, 1, &crosshair_vertex_buffer, cross_offsets);
+
+        uint32_t cross_offset = (uint32_t)((VkDeviceSize)crosshair_index * ubo_stride);
+        vkCmdBindDescriptorSets(command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS,
+                               pipeline_layout, 0, 1, &descriptor_sets_highlight[image_index],
+                               1, &cross_offset);
+        vkCmdDraw(command_buffers[image_index], 4, 1, 0, 0);
 
         vkCmdEndRenderPass(command_buffers[image_index]);
 
@@ -1855,7 +2151,16 @@ int main(void) {
     free(uniform_buffers_memory);
 
     vkDestroyDescriptorPool(device, descriptor_pool, NULL);
-    free(descriptor_sets);
+    free(descriptor_sets_normal);
+    free(descriptor_sets_highlight);
+
+    vkDestroyBuffer(device, crosshair_vertex_buffer, NULL);
+    vkFreeMemory(device, crosshair_vertex_memory, NULL);
+
+    vkDestroyBuffer(device, edge_vertex_buffer, NULL);
+    vkFreeMemory(device, edge_vertex_buffer_memory, NULL);
+    vkDestroyBuffer(device, edge_index_buffer, NULL);
+    vkFreeMemory(device, edge_index_buffer_memory, NULL);
 
     vkDestroyBuffer(device, vertex_buffer, NULL);
     vkFreeMemory(device, vertex_buffer_memory, NULL);
@@ -1872,6 +2177,11 @@ int main(void) {
     vkDestroyImage(device, textures[1].image, NULL);
     vkFreeMemory(device, textures[1].memory, NULL);
 
+    vkDestroySampler(device, black_texture.sampler, NULL);
+    vkDestroyImageView(device, black_texture.view, NULL);
+    vkDestroyImage(device, black_texture.image, NULL);
+    vkFreeMemory(device, black_texture.memory, NULL);
+
     vkDestroyCommandPool(device, command_pool, NULL);
 
     for (uint32_t i = 0; i < image_count; i++) {
@@ -1879,6 +2189,8 @@ int main(void) {
     }
     free(framebuffers);
 
+    vkDestroyPipeline(device, crosshair_pipeline, NULL);
+    vkDestroyPipeline(device, wireframe_pipeline, NULL);
     vkDestroyPipeline(device, graphics_pipeline, NULL);
     vkDestroyPipelineLayout(device, pipeline_layout, NULL);
     vkDestroyDescriptorSetLayout(device, descriptor_set_layout, NULL);
