@@ -1,6 +1,6 @@
 CC := clang
 CFLAGS := -O3 -march=native -Wall -Wextra
-LDFLAGS := -lvulkan -lX11 -lm
+LDFLAGS := -lvulkan -lX11 -lpng -lm
 
 TARGET := voxel.out
 SRC := main.c
