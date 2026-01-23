@@ -29,6 +29,8 @@
         }                                                                         \
     } while (0)
 
+static void die(const char *message);
+
 /* -------------------------------------------------------------------------- */
 /* Math Types                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -45,6 +47,10 @@ typedef struct { int x, y, z; } IVec3;
 static Vec3 vec3(float x, float y, float z) {
     Vec3 v = {x, y, z};
     return v;
+}
+
+static float lerp(float a, float b, float t) {
+    return a + (b - a) * t;
 }
 
 static Mat4 mat4_identity(void) {
@@ -148,6 +154,80 @@ static IVec3 world_to_cell(Vec3 p) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Noise Functions                                                            */
+/* -------------------------------------------------------------------------- */
+
+static uint32_t hash_2d(int x, int y, uint32_t seed) {
+    uint32_t h = (uint32_t)x * 374761393u + (uint32_t)y * 668265263u;
+    h += seed * 374761393u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return h ^ (h >> 16);
+}
+
+static float fade(float t) {
+    return t * t * t * (t * (t * 6.0f - 15.0f) + 10.0f);
+}
+
+static float gradient_dot(int ix, int iy, float x, float y, uint32_t seed) {
+    static const Vec2 gradients[8] = {
+        { 1.0f,  0.0f}, {-1.0f,  0.0f},
+        { 0.0f,  1.0f}, { 0.0f, -1.0f},
+        { 0.70710678f,  0.70710678f},
+        {-0.70710678f,  0.70710678f},
+        { 0.70710678f, -0.70710678f},
+        {-0.70710678f, -0.70710678f}
+    };
+
+    uint32_t h = hash_2d(ix, iy, seed);
+    Vec2 g = gradients[h & 7u];
+
+    float dx = x - (float)ix;
+    float dy = y - (float)iy;
+    return dx * g.x + dy * g.y;
+}
+
+static float perlin2d(float x, float y, uint32_t seed) {
+    int x0 = (int)floorf(x);
+    int y0 = (int)floorf(y);
+    int x1 = x0 + 1;
+    int y1 = y0 + 1;
+
+    float sx = x - (float)x0;
+    float sy = y - (float)y0;
+
+    float n0 = gradient_dot(x0, y0, x, y, seed);
+    float n1 = gradient_dot(x1, y0, x, y, seed);
+    float ix0 = lerp(n0, n1, fade(sx));
+
+    n0 = gradient_dot(x0, y1, x, y, seed);
+    n1 = gradient_dot(x1, y1, x, y, seed);
+    float ix1 = lerp(n0, n1, fade(sx));
+
+    return lerp(ix0, ix1, fade(sy));
+}
+
+static float fbm2d(float x, float y, int octaves, float lacunarity, float gain, uint32_t seed) {
+    float amplitude = 1.0f;
+    float frequency = 1.0f;
+    float sum = 0.0f;
+    float norm = 0.0f;
+
+    for (int i = 0; i < octaves; ++i) {
+        float noise = perlin2d(x * frequency, y * frequency, seed + (uint32_t)i * 1013u);
+        sum += noise * amplitude;
+        norm += amplitude;
+        amplitude *= gain;
+        frequency *= lacunarity;
+    }
+
+    if (norm > 0.0f) {
+        sum /= norm;
+    }
+
+    return sum;
+}
+
+/* -------------------------------------------------------------------------- */
 /* Camera                                                                     */
 /* -------------------------------------------------------------------------- */
 
@@ -220,7 +300,7 @@ typedef struct {
 
 static void player_compute_aabb(Vec3 pos, AABB *aabb) {
     const float half_width = 0.4f;
-    const float height = 2.0f;
+    const float height = 1.8f;
 
     aabb->min = vec3(pos.x - half_width, pos.y, pos.z - half_width);
     aabb->max = vec3(pos.x + half_width, pos.y + height, pos.z + half_width);
@@ -236,11 +316,16 @@ static bool aabb_intersect(const AABB *a, const AABB *b) {
 /* Blocks                                                                     */
 /* -------------------------------------------------------------------------- */
 
-typedef enum
-{
+typedef enum {
     BLOCK_DIRT  = 0,
-    BLOCK_STONE = 1
+    BLOCK_STONE = 1,
+    BLOCK_GRASS = 2,
+    BLOCK_SAND  = 3,
+    BLOCK_WATER = 4,
+    BLOCK_TYPE_COUNT
 } BlockType;
+
+enum { HIGHLIGHT_TEXTURE_INDEX = BLOCK_STONE };
 
 typedef struct {
     IVec3 pos;
@@ -268,6 +353,22 @@ static bool block_add(Block *blocks, int *count, int max_count, IVec3 pos, uint8
     blocks[*count].type = type;
     (*count)++;
     return true;
+}
+
+static bool block_add_fast(Block *blocks, int *count, int max_count, IVec3 pos, uint8_t type) {
+    if (*count >= max_count) {
+        return false;
+    }
+    blocks[*count].pos = pos;
+    blocks[*count].type = type;
+    (*count)++;
+    return true;
+}
+
+static void block_add_checked(Block *blocks, int *count, int max_count, IVec3 pos, uint8_t type) {
+    if (!block_add_fast(blocks, count, max_count, pos, type)) {
+        die("Exceeded maximum block capacity");
+    }
 }
 
 static bool block_remove(Block *blocks, int *count, IVec3 pos) {
@@ -401,12 +502,107 @@ static void resolve_collision_y(Vec3 *position, float *velocity_y, bool *on_grou
             *velocity_y = 0.0f;
             *on_ground = true;
         } else if (*velocity_y > 0.0f) {
-            position->y = block_box.min.y - 2.0f - 0.001f;
+            position->y = block_box.min.y - 1.8f - 0.001f;
             *velocity_y = 0.0f;
         }
 
         player_compute_aabb(*position, &player_box);
     }
+}
+
+/* -------------------------------------------------------------------------- */
+/* World Generation                                                           */
+/* -------------------------------------------------------------------------- */
+
+typedef struct {
+    Vec3 spawn_position;
+} WorldGenResult;
+
+static WorldGenResult generate_world(Block *blocks, int *block_count, int max_blocks) {
+    static const int WORLD_RADIUS = 30;
+    static const int SEA_LEVEL = 3;
+    static const int BEDROCK_DEPTH = -4;
+
+    *block_count = 0;
+    WorldGenResult result = { .spawn_position = vec3(0.0f, 4.5f, 0.0f) };
+
+    for (int x = -WORLD_RADIUS; x <= WORLD_RADIUS; ++x) {
+        for (int z = -WORLD_RADIUS; z <= WORLD_RADIUS; ++z) {
+            float fx = (float)x;
+            float fz = (float)z;
+
+            bool forced_plains = (abs(x) < 5 && abs(z) < 5);
+
+            float base = fbm2d(fx * 0.045f, fz * 0.045f, 4, 2.0f, 0.5f, 1234u);
+            float detail = fbm2d(fx * 0.12f, fz * 0.12f, 3, 2.15f, 0.5f, 5678u);
+            float mountain_factor = fbm2d(fx * 0.02f, fz * 0.02f, 5, 2.0f, 0.45f, 91011u);
+            float moisture = fbm2d(fx * 0.03f + 300.0f, fz * 0.03f - 300.0f, 4, 2.0f, 0.5f, 121314u);
+            float heat = fbm2d(fx * 0.03f - 600.0f, fz * 0.03f + 600.0f, 4, 2.0f, 0.5f, 151617u);
+            float dryness = heat - moisture;
+
+            BlockType surface = BLOCK_GRASS;
+            float height = 6.0f + base * 4.0f + detail * 2.5f;
+
+            if (!forced_plains && mountain_factor > 0.45f) {
+                float peaks = fbm2d(fx * 0.05f + 1000.0f, fz * 0.05f - 1000.0f, 4, 2.25f, 0.5f, 181920u);
+                height = 12.0f + peaks * 12.0f;
+                surface = BLOCK_STONE;
+            } else if (!forced_plains && dryness > 0.45f) {
+                float dunes = fbm2d(fx * 0.08f + 2000.0f, fz * 0.08f + 2000.0f, 3, 2.1f, 0.55f, 212223u);
+                height = 3.0f + dunes * 3.5f;
+                surface = BLOCK_SAND;
+            } else {
+                float meadow = fbm2d(fx * 0.07f - 1500.0f, fz * 0.07f + 1500.0f, 3, 2.0f, 0.5f, 242526u);
+                height = 6.5f + base * 3.5f + meadow * 2.0f;
+                surface = BLOCK_GRASS;
+            }
+
+            height = fmaxf(height, 0.5f);
+            int ground_y = (int)floorf(height);
+
+            float river_signal = fabsf(perlin2d(fx * 0.015f + 4000.0f, fz * 0.015f - 4000.0f, 272829u));
+            bool is_river = !forced_plains && river_signal < 0.11f;
+
+            if (is_river) {
+                ground_y = (int)fminf((float)ground_y, (float)SEA_LEVEL - 1.0f);
+                surface = BLOCK_SAND;
+            }
+
+            for (int y = BEDROCK_DEPTH; y < ground_y - 3; ++y) {
+                block_add_checked(blocks, block_count, max_blocks, (IVec3){x, y, z}, BLOCK_STONE);
+            }
+
+            for (int y = ground_y - 3; y < ground_y; ++y) {
+                if (y < BEDROCK_DEPTH) {
+                    continue;
+                }
+
+                BlockType filler = BLOCK_DIRT;
+                if (surface == BLOCK_SAND) {
+                    filler = BLOCK_SAND;
+                } else if (surface == BLOCK_STONE) {
+                    filler = BLOCK_STONE;
+                }
+
+                block_add_checked(blocks, block_count, max_blocks, (IVec3){x, y, z}, filler);
+            }
+
+            block_add_checked(blocks, block_count, max_blocks, (IVec3){x, ground_y, z}, surface);
+
+            bool fill_with_water = is_river || ground_y < SEA_LEVEL;
+            if (fill_with_water) {
+                for (int y = ground_y + 1; y <= SEA_LEVEL; ++y) {
+                    block_add_checked(blocks, block_count, max_blocks, (IVec3){x, y, z}, BLOCK_WATER);
+                }
+            }
+
+            if (x == 0 && z == 0) {
+                result.spawn_position = vec3(0.0f, (float)ground_y + 0.5f, 0.0f);
+            }
+        }
+    }
+
+    return result;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1248,7 +1444,8 @@ typedef struct {
     VkPipelineLayout pipeline_layout;
     VkShaderModule vert_shader;
     VkShaderModule frag_shader;
-    const Texture *textures;          /* 0: dirt, 1: stone */
+    const Texture *textures;
+    uint32_t texture_count;
     const Texture *black_texture;
     VkBuffer vertex_buffer;
     VkBuffer index_buffer;
@@ -1256,7 +1453,7 @@ typedef struct {
     VkBuffer edge_index_buffer;
     VkBuffer crosshair_vertex_buffer;
     VkDeviceMemory crosshair_vertex_memory;
-    VkBuffer uniform_template_buffer; /* unused, but keep for possible future usage */
+    VkBuffer uniform_template_buffer;
 } SwapchainContext;
 
 static void update_crosshair_vertices(VkDevice device,
@@ -1288,7 +1485,6 @@ static void swapchain_create(SwapchainContext *ctx,
     VkDevice device = ctx->device;
     VkSurfaceKHR surface = ctx->surface;
 
-    /* Query surface capabilities */
     VkSurfaceCapabilitiesKHR capabilities;
     VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, surface, &capabilities));
 
@@ -1591,7 +1787,7 @@ static void swapchain_create(SwapchainContext *ctx,
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
     pool_sizes[0].descriptorCount = image_count * 2;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_sizes[1].descriptorCount = image_count * 4;
+    pool_sizes[1].descriptorCount = image_count * ctx->texture_count * 2;
 
     VkDescriptorPoolCreateInfo pool_info = {0};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1625,20 +1821,21 @@ static void swapchain_create(SwapchainContext *ctx,
         buffer_info.buffer = res->uniform_buffers[i];
         buffer_info.range = sizeof(UniformBufferObject);
 
-        VkDescriptorImageInfo normal_images[2] = {0};
-        normal_images[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        normal_images[0].imageView = ctx->textures[0].view;
-        normal_images[0].sampler = ctx->textures[0].sampler;
+        VkDescriptorImageInfo normal_images[BLOCK_TYPE_COUNT];
+        VkDescriptorImageInfo highlight_images[BLOCK_TYPE_COUNT];
 
-        normal_images[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        normal_images[1].imageView = ctx->textures[1].view;
-        normal_images[1].sampler = ctx->textures[1].sampler;
+        for (uint32_t tex = 0; tex < ctx->texture_count; ++tex) {
+            normal_images[tex].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            normal_images[tex].imageView = ctx->textures[tex].view;
+            normal_images[tex].sampler = ctx->textures[tex].sampler;
 
-        VkDescriptorImageInfo highlight_images[2];
-        highlight_images[0] = normal_images[0];
-        highlight_images[1] = normal_images[1];
-        highlight_images[1].imageView = ctx->black_texture->view;
-        highlight_images[1].sampler = ctx->black_texture->sampler;
+            highlight_images[tex] = normal_images[tex];
+        }
+
+        if (ctx->texture_count > HIGHLIGHT_TEXTURE_INDEX) {
+            highlight_images[HIGHLIGHT_TEXTURE_INDEX].imageView = ctx->black_texture->view;
+            highlight_images[HIGHLIGHT_TEXTURE_INDEX].sampler = ctx->black_texture->sampler;
+        }
 
         VkWriteDescriptorSet writes[2] = {0};
         writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -1652,7 +1849,7 @@ static void swapchain_create(SwapchainContext *ctx,
         writes[1].dstSet = res->descriptor_sets_normal[i];
         writes[1].dstBinding = 1;
         writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[1].descriptorCount = 2;
+        writes[1].descriptorCount = ctx->texture_count;
         writes[1].pImageInfo = normal_images;
 
         vkUpdateDescriptorSets(device, ARRAY_LENGTH(writes), writes, 0, NULL);
@@ -1693,7 +1890,7 @@ static bool is_key_pressed(const bool *keys, KeySym sym) {
 /* -------------------------------------------------------------------------- */
 
 int main(void) {
-    const uint32_t MAX_BLOCKS = 4096;
+    const uint32_t MAX_BLOCKS = 200000;
     const uint32_t EXTRA_UBOS = 2; /* highlight + crosshair */
     uint32_t window_width = 800;
     uint32_t window_height = 600;
@@ -1727,7 +1924,6 @@ int main(void) {
     XSetWMProtocols(display, window, &wm_delete_window, 1);
     XMapWindow(display, window);
 
-    /* Invisible cursor for captured mode */
     char empty_cursor_data[8] = {0};
     Pixmap blank = XCreateBitmapFromData(display, window, empty_cursor_data, 8, 8);
     Colormap colormap = DefaultColormap(display, screen);
@@ -1859,9 +2055,18 @@ int main(void) {
     /* Textures                                                                */
     /* ---------------------------------------------------------------------- */
 
-    Texture textures[2];
-    texture_create_from_file(device, physical_device, command_pool, graphics_queue, "dirt.png", &textures[0]);
-    texture_create_from_file(device, physical_device, command_pool, graphics_queue, "stone.png", &textures[1]);
+    Texture textures[BLOCK_TYPE_COUNT];
+    const char *texture_files[BLOCK_TYPE_COUNT] = {
+        "dirt.png",
+        "stone.png",
+        "grass.png",
+        "sand.png",
+        "water.png"
+    };
+
+    for (uint32_t i = 0; i < BLOCK_TYPE_COUNT; ++i) {
+        texture_create_from_file(device, physical_device, command_pool, graphics_queue, texture_files[i], &textures[i]);
+    }
 
     Texture black_texture;
     texture_create_solid(device, physical_device, command_pool, graphics_queue, 0, 0, 0, 255, &black_texture);
@@ -1953,7 +2158,7 @@ int main(void) {
     VkDescriptorSetLayoutBinding sampler_binding = {0};
     sampler_binding.binding = 1;
     sampler_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    sampler_binding.descriptorCount = 2;
+    sampler_binding.descriptorCount = BLOCK_TYPE_COUNT;
     sampler_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
     VkDescriptorSetLayoutBinding bindings[] = {ubo_binding, sampler_binding};
@@ -2009,6 +2214,7 @@ int main(void) {
         .vert_shader = vert_shader,
         .frag_shader = frag_shader,
         .textures = textures,
+        .texture_count = BLOCK_TYPE_COUNT,
         .black_texture = &black_texture,
         .vertex_buffer = vertex_buffer,
         .index_buffer = index_buffer,
@@ -2025,12 +2231,7 @@ int main(void) {
     Block *blocks = malloc(sizeof(Block) * MAX_BLOCKS);
     int block_count = 0;
 
-    for (int x = -7; x <= 7; ++x) {
-        for (int z = -7; z <= 7; ++z) {
-            bool corner = (abs(x) == 7) && (abs(z) == 7);
-            block_add(blocks, &block_count, MAX_BLOCKS, (IVec3){x, 0, z}, corner ? BLOCK_STONE : BLOCK_DIRT);
-        }
-    }
+    WorldGenResult world_info = generate_world(blocks, &block_count, MAX_BLOCKS);
 
     /* ---------------------------------------------------------------------- */
     /* Player / Camera                                                        */
@@ -2042,7 +2243,7 @@ int main(void) {
     const float EYE_HEIGHT = 1.6f;
 
     Player player = {0};
-    player.position = vec3(0.0f, 1.5f, 0.0f);
+    player.position = world_info.spawn_position;
 
     Camera camera;
     camera_init(&camera);
@@ -2128,6 +2329,12 @@ int main(void) {
                     current_block_type = BLOCK_DIRT;
                 } else if (sym == XK_2) {
                     current_block_type = BLOCK_STONE;
+                } else if (sym == XK_3) {
+                    current_block_type = BLOCK_GRASS;
+                } else if (sym == XK_4) {
+                    current_block_type = BLOCK_SAND;
+                } else if (sym == XK_5) {
+                    current_block_type = BLOCK_WATER;
                 } else if (sym < 256) {
                     keys[sym] = true;
                 }
@@ -2325,7 +2532,7 @@ int main(void) {
                                             (float)ray_hit.cell.z));
             ubo.view = view;
             ubo.proj = proj;
-            ubo.block_type = 1;
+            ubo.block_type = HIGHLIGHT_TEXTURE_INDEX;
 
             memcpy(base + (size_t)highlight_index * swapchain.ubo_stride, &ubo, sizeof(ubo));
         }
@@ -2334,7 +2541,7 @@ int main(void) {
         cross_ubo.model = mat4_identity();
         cross_ubo.view = mat4_identity();
         cross_ubo.proj = mat4_identity();
-        cross_ubo.block_type = 1;
+        cross_ubo.block_type = HIGHLIGHT_TEXTURE_INDEX;
 
         memcpy(base + (size_t)crosshair_index * swapchain.ubo_stride, &cross_ubo, sizeof(cross_ubo));
         vkUnmapMemory(device, swapchain.uniform_memories[image_index]);
@@ -2474,8 +2681,9 @@ int main(void) {
     vkDestroyBuffer(device, index_buffer, NULL);
     vkFreeMemory(device, index_memory, NULL);
 
-    texture_destroy(device, &textures[0]);
-    texture_destroy(device, &textures[1]);
+    for (uint32_t i = 0; i < BLOCK_TYPE_COUNT; ++i) {
+        texture_destroy(device, &textures[i]);
+    }
     texture_destroy(device, &black_texture);
 
     vkDestroyPipelineLayout(device, pipeline_layout, NULL);
