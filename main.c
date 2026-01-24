@@ -1,3 +1,4 @@
+#include <errno.h>
 #include <math.h>
 #include <png.h>
 #include <stdbool.h>
@@ -32,6 +33,30 @@
 static void die(const char *message);
 
 /* -------------------------------------------------------------------------- */
+/* World / Chunk Configuration                                                */
+/* -------------------------------------------------------------------------- */
+
+#define CHUNK_SIZE 16
+#define WORLD_MIN_Y (-8)
+#define WORLD_MAX_Y 32
+#define CHUNK_HEIGHT (WORLD_MAX_Y - WORLD_MIN_Y + 1)
+
+/* Increased view distance: more chunks loaded around the player */
+#define ACTIVE_CHUNK_RADIUS 6
+#define CHUNK_UNLOAD_MARGIN 2
+
+#define MAX_LOADED_CHUNKS ((uint32_t)(((ACTIVE_CHUNK_RADIUS + CHUNK_UNLOAD_MARGIN) * 2 + 1) * ((ACTIVE_CHUNK_RADIUS + CHUNK_UNLOAD_MARGIN) * 2 + 1)))
+
+/* Single-file world save */
+#define WORLD_SAVE_FILE "world.vox"
+#define WORLD_SAVE_MAGIC 0x58574F56u /* 'VOWX' little-endian (VOXW as bytes) */
+#define WORLD_SAVE_VERSION 1u
+
+/* Instance buffer (CPU->GPU) budget */
+#define INITIAL_INSTANCE_CAPACITY 200000u
+#define MAX_INSTANCE_CAPACITY     1500000u
+
+/* -------------------------------------------------------------------------- */
 /* Math Types                                                                 */
 /* -------------------------------------------------------------------------- */
 
@@ -56,14 +81,6 @@ static float lerp(float a, float b, float t) {
 static Mat4 mat4_identity(void) {
     Mat4 m = {0};
     m.m[0] = 1.0f;  m.m[5] = 1.0f;  m.m[10] = 1.0f; m.m[15] = 1.0f;
-    return m;
-}
-
-static Mat4 mat4_translate(Vec3 v) {
-    Mat4 m = mat4_identity();
-    m.m[12] = v.x;
-    m.m[13] = v.y;
-    m.m[14] = v.z;
     return m;
 }
 
@@ -151,6 +168,10 @@ static IVec3 world_to_cell(Vec3 p) {
         (int)floorf(p.z + 0.5f)
     };
     return cell;
+}
+
+static bool world_y_in_bounds(int y) {
+    return y >= WORLD_MIN_Y && y <= WORLD_MAX_Y;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -260,7 +281,7 @@ static void camera_init(Camera *cam) {
     cam->world_up         = vec3(0.0f, 1.0f, 0.0f);
     cam->yaw              = -90.0f;
     cam->pitch            = 0.0f;
-    cam->movement_speed   = 5.0f;
+    cam->movement_speed   = 6.0f;
     cam->mouse_sensitivity = 0.1f;
     camera_update_axes(cam);
 }
@@ -306,12 +327,6 @@ static void player_compute_aabb(Vec3 pos, AABB *aabb) {
     aabb->max = vec3(pos.x + half_width, pos.y + height, pos.z + half_width);
 }
 
-static bool aabb_intersect(const AABB *a, const AABB *b) {
-    return (a->min.x < b->max.x && a->max.x > b->min.x) &&
-           (a->min.y < b->max.y && a->max.y > b->min.y) &&
-           (a->min.z < b->max.z && a->max.z > b->min.z);
-}
-
 /* -------------------------------------------------------------------------- */
 /* Blocks                                                                     */
 /* -------------------------------------------------------------------------- */
@@ -332,206 +347,721 @@ typedef struct {
     uint8_t type;
 } Block;
 
-static int block_index_of(Block *blocks, int count, IVec3 pos) {
-    for (int i = 0; i < count; ++i) {
-        if (ivec3_equal(blocks[i].pos, pos)) {
-            return i;
-        }
+static AABB cell_aabb(IVec3 cell) {
+    AABB box;
+    box.min = vec3(cell.x - 0.5f, cell.y - 0.5f, cell.z - 0.5f);
+    box.max = vec3(cell.x + 0.5f, cell.y + 0.5f, cell.z + 0.5f);
+    return box;
+}
+
+static bool block_is_air(uint8_t type) { return type == 255u; }
+static bool block_is_water(uint8_t type) { return type == BLOCK_WATER; }
+
+/* -------------------------------------------------------------------------- */
+/* World Save (single file)                                                   */
+/* -------------------------------------------------------------------------- */
+
+typedef struct {
+    int32_t cx;
+    int32_t cz;
+    uint8_t *voxels; /* size = CHUNK_SIZE*CHUNK_HEIGHT*CHUNK_SIZE */
+} ChunkRecord;
+
+typedef struct {
+    ChunkRecord *records;
+    int count;
+    int capacity;
+    bool dirty;
+    char path[256];
+} WorldSave;
+
+static size_t chunk_voxel_count(void) {
+    return (size_t)CHUNK_SIZE * (size_t)CHUNK_HEIGHT * (size_t)CHUNK_SIZE;
+}
+
+static int world_save_find_index(const WorldSave *save, int cx, int cz) {
+    for (int i = 0; i < save->count; ++i) {
+        if (save->records[i].cx == cx && save->records[i].cz == cz) return i;
     }
     return -1;
 }
 
-static bool block_add(Block *blocks, int *count, int max_count, IVec3 pos, uint8_t type) {
-    if (*count >= max_count) {
-        return false;
+static void world_save_init(WorldSave *save, const char *path) {
+    *save = (WorldSave){0};
+    snprintf(save->path, sizeof(save->path), "%s", path);
+}
+
+static void world_save_free_records(WorldSave *save) {
+    for (int i = 0; i < save->count; ++i) {
+        free(save->records[i].voxels);
     }
-    if (block_index_of(blocks, *count, pos) >= 0) {
+    free(save->records);
+    save->records = NULL;
+    save->count = 0;
+    save->capacity = 0;
+}
+
+static bool world_save_load(WorldSave *save) {
+    FILE *f = fopen(save->path, "rb");
+    if (!f) return false;
+
+    uint32_t magic = 0, version = 0;
+    uint32_t file_chunk_size = 0;
+    int32_t file_min_y = 0, file_max_y = 0;
+    uint32_t record_count = 0;
+
+    if (fread(&magic, sizeof(magic), 1, f) != 1 ||
+        fread(&version, sizeof(version), 1, f) != 1 ||
+        fread(&file_chunk_size, sizeof(file_chunk_size), 1, f) != 1 ||
+        fread(&file_min_y, sizeof(file_min_y), 1, f) != 1 ||
+        fread(&file_max_y, sizeof(file_max_y), 1, f) != 1 ||
+        fread(&record_count, sizeof(record_count), 1, f) != 1)
+    {
+        fclose(f);
         return false;
     }
 
-    blocks[*count].pos  = pos;
-    blocks[*count].type = type;
-    (*count)++;
+    if (magic != WORLD_SAVE_MAGIC || version != WORLD_SAVE_VERSION ||
+        file_chunk_size != (uint32_t)CHUNK_SIZE ||
+        file_min_y != (int32_t)WORLD_MIN_Y ||
+        file_max_y != (int32_t)WORLD_MAX_Y)
+    {
+        fclose(f);
+        return false;
+    }
+
+    world_save_free_records(save);
+
+    if (record_count > 0) {
+        save->records = calloc(record_count, sizeof(ChunkRecord));
+        if (!save->records) die("Failed to allocate world save index");
+        save->capacity = (int)record_count;
+    }
+
+    size_t vcount = chunk_voxel_count();
+
+    for (uint32_t i = 0; i < record_count; ++i) {
+        int32_t cx = 0, cz = 0;
+        if (fread(&cx, sizeof(cx), 1, f) != 1 ||
+            fread(&cz, sizeof(cz), 1, f) != 1)
+        {
+            fclose(f);
+            world_save_free_records(save);
+            return false;
+        }
+
+        uint8_t *vox = malloc(vcount);
+        if (!vox) die("Failed to allocate chunk voxel data for load");
+
+        if (fread(vox, 1, vcount, f) != vcount) {
+            free(vox);
+            fclose(f);
+            world_save_free_records(save);
+            return false;
+        }
+
+        save->records[i].cx = cx;
+        save->records[i].cz = cz;
+        save->records[i].voxels = vox;
+        save->count++;
+    }
+
+    fclose(f);
+    save->dirty = false;
     return true;
 }
 
-static bool block_add_fast(Block *blocks, int *count, int max_count, IVec3 pos, uint8_t type) {
-    if (*count >= max_count) {
-        return false;
-    }
-    blocks[*count].pos = pos;
-    blocks[*count].type = type;
-    (*count)++;
-    return true;
+static void world_save_ensure_capacity(WorldSave *save, int min_capacity) {
+    if (save->capacity >= min_capacity) return;
+
+    int new_capacity = save->capacity > 0 ? save->capacity : 64;
+    while (new_capacity < min_capacity) new_capacity *= 2;
+
+    ChunkRecord *new_records = realloc(save->records, (size_t)new_capacity * sizeof(ChunkRecord));
+    if (!new_records) die("Failed to grow world save record list");
+
+    save->records = new_records;
+    save->capacity = new_capacity;
 }
 
-static void block_add_checked(Block *blocks, int *count, int max_count, IVec3 pos, uint8_t type) {
-    if (!block_add_fast(blocks, count, max_count, pos, type)) {
-        die("Exceeded maximum block capacity");
-    }
-}
+static void world_save_store(WorldSave *save, int cx, int cz, const uint8_t *voxels) {
+    int idx = world_save_find_index(save, cx, cz);
+    size_t vcount = chunk_voxel_count();
 
-static bool block_remove(Block *blocks, int *count, IVec3 pos) {
-    int idx = block_index_of(blocks, *count, pos);
     if (idx < 0) {
-        return false;
+        world_save_ensure_capacity(save, save->count + 1);
+        idx = save->count++;
+        save->records[idx].cx = (int32_t)cx;
+        save->records[idx].cz = (int32_t)cz;
+        save->records[idx].voxels = malloc(vcount);
+        if (!save->records[idx].voxels) die("Failed to allocate world save voxel record");
     }
 
-    blocks[idx] = blocks[*count - 1];
-    (*count)--;
+    memcpy(save->records[idx].voxels, voxels, vcount);
+    save->dirty = true;
+}
+
+static bool world_save_fetch(const WorldSave *save, int cx, int cz, uint8_t *out_voxels) {
+    int idx = world_save_find_index(save, cx, cz);
+    if (idx < 0) return false;
+    memcpy(out_voxels, save->records[idx].voxels, chunk_voxel_count());
     return true;
 }
 
-static bool block_overlaps_player(const Player *player, IVec3 cell) {
-    AABB player_box;
-    player_compute_aabb(player->position, &player_box);
+static void world_save_flush(WorldSave *save) {
+    if (!save->dirty) return;
 
-    AABB block_box;
-    block_box.min = vec3(cell.x - 0.5f, cell.y - 0.5f, cell.z - 0.5f);
-    block_box.max = vec3(cell.x + 0.5f, cell.y + 0.5f, cell.z + 0.5f);
+    char tmp_path[300];
+    snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", save->path);
 
-    return aabb_intersect(&player_box, &block_box);
-}
+    FILE *f = fopen(tmp_path, "wb");
+    if (!f) die("Failed to open temp world save file for writing");
 
-/* -------------------------------------------------------------------------- */
-/* Raycast                                                                    */
-/* -------------------------------------------------------------------------- */
+    uint32_t magic = WORLD_SAVE_MAGIC;
+    uint32_t version = WORLD_SAVE_VERSION;
+    uint32_t file_chunk_size = (uint32_t)CHUNK_SIZE;
+    int32_t file_min_y = (int32_t)WORLD_MIN_Y;
+    int32_t file_max_y = (int32_t)WORLD_MAX_Y;
+    uint32_t record_count = (uint32_t)save->count;
 
-typedef struct {
-    bool hit;
-    IVec3 cell;
-    IVec3 normal;
-} RayHit;
+    if (fwrite(&magic, sizeof(magic), 1, f) != 1 ||
+        fwrite(&version, sizeof(version), 1, f) != 1 ||
+        fwrite(&file_chunk_size, sizeof(file_chunk_size), 1, f) != 1 ||
+        fwrite(&file_min_y, sizeof(file_min_y), 1, f) != 1 ||
+        fwrite(&file_max_y, sizeof(file_max_y), 1, f) != 1 ||
+        fwrite(&record_count, sizeof(record_count), 1, f) != 1)
+    {
+        fclose(f);
+        remove(tmp_path);
+        die("Failed to write world save header");
+    }
 
-static RayHit raycast_blocks(Vec3 origin, Vec3 direction, Block *blocks, int block_count, float max_distance) {
-    const float step = 0.05f;
-    RayHit result = {0};
-    Vec3 dir = vec3_normalize(direction);
+    size_t vcount = chunk_voxel_count();
 
-    IVec3 previous_cell = world_to_cell(origin);
+    for (int i = 0; i < save->count; ++i) {
+        int32_t cx = save->records[i].cx;
+        int32_t cz = save->records[i].cz;
 
-    for (float t = 0.0f; t <= max_distance; t += step) {
-        Vec3 point = vec3_add(origin, vec3_scale(dir, t));
-        IVec3 cell = world_to_cell(point);
-
-        if (!ivec3_equal(cell, previous_cell)) {
-            if (block_index_of(blocks, block_count, cell) >= 0) {
-                result.hit = true;
-                result.cell = cell;
-                result.normal = (IVec3){
-                    sign_int(previous_cell.x - cell.x),
-                    sign_int(previous_cell.y - cell.y),
-                    sign_int(previous_cell.z - cell.z)
-                };
-                break;
-            }
-            previous_cell = cell;
+        if (fwrite(&cx, sizeof(cx), 1, f) != 1 ||
+            fwrite(&cz, sizeof(cz), 1, f) != 1 ||
+            fwrite(save->records[i].voxels, 1, vcount, f) != vcount)
+        {
+            fclose(f);
+            remove(tmp_path);
+            die("Failed to write world save record");
         }
     }
 
-    return result;
+    fclose(f);
+
+    if (rename(tmp_path, save->path) != 0) {
+        remove(tmp_path);
+        die("Failed to replace world save file");
+    }
+
+    save->dirty = false;
+}
+
+static void world_save_destroy(WorldSave *save) {
+    world_save_flush(save);
+    world_save_free_records(save);
+    *save = (WorldSave){0};
 }
 
 /* -------------------------------------------------------------------------- */
-/* Player Collision Helpers                                                   */
+/* World / Chunk Structures                                                   */
 /* -------------------------------------------------------------------------- */
 
-static AABB block_aabb(Block block) {
-    AABB box;
-    box.min = vec3(block.pos.x - 0.5f, block.pos.y - 0.5f, block.pos.z - 0.5f);
-    box.max = vec3(block.pos.x + 0.5f, block.pos.y + 0.5f, block.pos.z + 0.5f);
-    return box;
+typedef struct Chunk Chunk;
+typedef struct World World;
+
+struct Chunk {
+    int cx;
+    int cz;
+    uint8_t *voxels;
+
+    /* Render list: only blocks that likely have at least one visible face */
+    Block *blocks;
+    int block_count;
+    int block_capacity;
+
+    bool dirty;        /* needs saving */
+    bool render_dirty; /* needs rebuild render list */
+};
+
+struct World {
+    Chunk **chunks;
+    int chunk_count;
+    int chunk_capacity;
+    Vec3 spawn_position;
+    bool spawn_set;
+    WorldSave *save;
+};
+
+/* -------------------------------------------------------------------------- */
+/* Chunk Helpers                                                              */
+/* -------------------------------------------------------------------------- */
+
+static inline int div_floor_int(int value, int divisor) {
+    int quotient = value / divisor;
+    int remainder = value % divisor;
+    if (remainder != 0 && ((remainder < 0) != (divisor < 0))) {
+        quotient -= 1;
+    }
+    return quotient;
 }
 
-static void resolve_collision_axis(Vec3 *position, float delta, int axis,
-                                   Block *blocks, int block_count) {
-    if (delta == 0.0f) {
+static inline int cell_to_chunk_coord(int value) {
+    return div_floor_int(value, CHUNK_SIZE);
+}
+
+static inline int chunk_base_coord(int chunk_coord) {
+    return chunk_coord * CHUNK_SIZE;
+}
+
+static inline int chunk_voxel_index(int lx, int ly, int lz) {
+    return (ly * CHUNK_SIZE + lz) * CHUNK_SIZE + lx;
+}
+
+static void chunk_ensure_capacity(Chunk *chunk, int min_capacity) {
+    if (chunk->block_capacity >= min_capacity) return;
+
+    int new_capacity = chunk->block_capacity > 0 ? chunk->block_capacity : 256;
+    while (new_capacity < min_capacity) new_capacity *= 2;
+
+    Block *new_blocks = realloc(chunk->blocks, (size_t)new_capacity * sizeof(Block));
+    if (!new_blocks) die("Failed to allocate chunk blocks");
+
+    chunk->blocks = new_blocks;
+    chunk->block_capacity = new_capacity;
+}
+
+static void chunk_init(Chunk *chunk, int cx, int cz) {
+    chunk->cx = cx;
+    chunk->cz = cz;
+    chunk->block_count = 0;
+    chunk->block_capacity = 0;
+    chunk->blocks = NULL;
+    chunk->dirty = false;
+    chunk->render_dirty = true;
+
+    size_t voxel_count = chunk_voxel_count();
+    chunk->voxels = malloc(voxel_count);
+    if (!chunk->voxels) die("Failed to allocate chunk voxels");
+    memset(chunk->voxels, (int)255, voxel_count);
+}
+
+static void chunk_destroy(Chunk *chunk) {
+    if (!chunk) return;
+    free(chunk->voxels);
+    free(chunk->blocks);
+    free(chunk);
+}
+
+static uint8_t chunk_get_voxel(const Chunk *chunk, int lx, int ly, int lz) {
+    if (lx < 0 || lx >= CHUNK_SIZE ||
+        lz < 0 || lz >= CHUNK_SIZE ||
+        ly < 0 || ly >= CHUNK_HEIGHT)
+    {
+        return 255u;
+    }
+    return chunk->voxels[chunk_voxel_index(lx, ly, lz)];
+}
+
+static void chunk_set_voxel(Chunk *chunk, int lx, int ly, int lz, uint8_t type) {
+    if (lx < 0 || lx >= CHUNK_SIZE ||
+        lz < 0 || lz >= CHUNK_SIZE ||
+        ly < 0 || ly >= CHUNK_HEIGHT)
+    {
+        return;
+    }
+    chunk->voxels[chunk_voxel_index(lx, ly, lz)] = type;
+}
+
+/* Forward declarations for cross-chunk neighbor lookups */
+static bool world_get_block_type(World *world, IVec3 pos, uint8_t *type_out);
+
+/* Build render list: include only blocks that have at least one potentially visible face. */
+static void chunk_rebuild_render_list(World *world, Chunk *chunk) {
+    chunk->block_count = 0;
+
+    int base_x = chunk_base_coord(chunk->cx);
+    int base_z = chunk_base_coord(chunk->cz);
+
+    for (int ly = 0; ly < CHUNK_HEIGHT; ++ly) {
+        int wy = WORLD_MIN_Y + ly;
+        for (int lz = 0; lz < CHUNK_SIZE; ++lz) {
+            for (int lx = 0; lx < CHUNK_SIZE; ++lx) {
+                uint8_t type = chunk_get_voxel(chunk, lx, ly, lz);
+                if (block_is_air(type)) continue;
+
+                /* Neighbor positions in world coords */
+                IVec3 p = (IVec3){ base_x + lx, wy, base_z + lz };
+
+                /* Determine if this block has any face exposed to air / water boundary */
+                static const IVec3 dirs[6] = {
+                    { 1, 0, 0}, {-1, 0, 0},
+                    { 0, 1, 0}, { 0,-1, 0},
+                    { 0, 0, 1}, { 0, 0,-1}
+                };
+
+                bool visible = false;
+                for (int d = 0; d < 6; ++d) {
+                    IVec3 npos = ivec3_add(p, dirs[d]);
+                    uint8_t ntype = 255u;
+
+                    if (!world_y_in_bounds(npos.y)) {
+                        ntype = 255u;
+                    } else if (npos.x >= base_x && npos.x < base_x + CHUNK_SIZE &&
+                               npos.z >= base_z && npos.z < base_z + CHUNK_SIZE)
+                    {
+                        int nlx = npos.x - base_x;
+                        int nlz = npos.z - base_z;
+                        int nly = npos.y - WORLD_MIN_Y;
+                        ntype = chunk_get_voxel(chunk, nlx, nly, nlz);
+                    } else {
+                        /* Cross-chunk neighbor: treat missing chunks as air */
+                        if (!world_get_block_type(world, npos, &ntype)) {
+                            ntype = 255u;
+                        }
+                    }
+
+                    if (block_is_water(type)) {
+                        if (block_is_air(ntype) || !block_is_water(ntype)) {
+                            visible = true;
+                            break;
+                        }
+                    } else {
+                        if (block_is_air(ntype) || block_is_water(ntype)) {
+                            visible = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (!visible) continue;
+
+                chunk_ensure_capacity(chunk, chunk->block_count + 1);
+                chunk->blocks[chunk->block_count].pos = p;
+                chunk->blocks[chunk->block_count].type = type;
+                chunk->block_count++;
+            }
+        }
+    }
+
+    chunk->render_dirty = false;
+}
+
+static bool chunk_load_from_worldsave(WorldSave *save, Chunk *chunk) {
+    if (!save) return false;
+    bool ok = world_save_fetch(save, chunk->cx, chunk->cz, chunk->voxels);
+    if (ok) {
+        chunk->dirty = false;
+        chunk->render_dirty = true;
+    }
+    return ok;
+}
+
+static void chunk_store_to_worldsave(WorldSave *save, Chunk *chunk) {
+    if (!save) return;
+    world_save_store(save, chunk->cx, chunk->cz, chunk->voxels);
+    chunk->dirty = false;
+}
+
+/* Editing ops */
+static bool chunk_add_block(Chunk *chunk, IVec3 pos, uint8_t type) {
+    if (!world_y_in_bounds(pos.y)) return false;
+
+    int base_x = chunk_base_coord(chunk->cx);
+    int base_z = chunk_base_coord(chunk->cz);
+
+    int lx = pos.x - base_x;
+    int lz = pos.z - base_z;
+    int ly = pos.y - WORLD_MIN_Y;
+
+    if (lx < 0 || lx >= CHUNK_SIZE ||
+        lz < 0 || lz >= CHUNK_SIZE ||
+        ly < 0 || ly >= CHUNK_HEIGHT)
+    {
+        return false;
+    }
+
+    if (!block_is_air(chunk_get_voxel(chunk, lx, ly, lz))) return false;
+
+    chunk_set_voxel(chunk, lx, ly, lz, type);
+    chunk->dirty = true;
+    chunk->render_dirty = true;
+    return true;
+}
+
+static bool chunk_remove_block(Chunk *chunk, IVec3 pos) {
+    if (!world_y_in_bounds(pos.y)) return false;
+
+    int base_x = chunk_base_coord(chunk->cx);
+    int base_z = chunk_base_coord(chunk->cz);
+
+    int lx = pos.x - base_x;
+    int lz = pos.z - base_z;
+    int ly = pos.y - WORLD_MIN_Y;
+
+    if (lx < 0 || lx >= CHUNK_SIZE ||
+        lz < 0 || lz >= CHUNK_SIZE ||
+        ly < 0 || ly >= CHUNK_HEIGHT)
+    {
+        return false;
+    }
+
+    if (block_is_air(chunk_get_voxel(chunk, lx, ly, lz))) return false;
+
+    chunk_set_voxel(chunk, lx, ly, lz, 255u);
+    chunk->dirty = true;
+    chunk->render_dirty = true;
+    return true;
+}
+
+/* -------------------------------------------------------------------------- */
+/* World Helpers                                                              */
+/* -------------------------------------------------------------------------- */
+
+static Chunk *world_find_chunk(World *world, int cx, int cz) {
+    for (int i = 0; i < world->chunk_count; ++i) {
+        if (world->chunks[i]->cx == cx && world->chunks[i]->cz == cz) return world->chunks[i];
+    }
+    return NULL;
+}
+
+static void world_try_set_spawn(World *world, Chunk *chunk) {
+    if (world->spawn_set) return;
+
+    int base_x = chunk_base_coord(chunk->cx);
+    int base_z = chunk_base_coord(chunk->cz);
+
+    if (0 < base_x || 0 >= base_x + CHUNK_SIZE ||
+        0 < base_z || 0 >= base_z + CHUNK_SIZE)
+    {
         return;
     }
 
-    AABB player_box;
-    player_compute_aabb(*position, &player_box);
+    int lx = -base_x;
+    int lz = -base_z;
 
-    for (int i = 0; i < block_count; ++i) {
-        AABB block_box = block_aabb(blocks[i]);
-
-        if (!aabb_intersect(&player_box, &block_box)) {
-            continue;
-        }
-
-        switch (axis) {
-        case 0: /* X axis */
-            if (delta > 0.0f) {
-                position->x = block_box.min.x - 0.4f - 0.001f;
-            } else {
-                position->x = block_box.max.x + 0.4f + 0.001f;
-            }
-            break;
-
-        case 2: /* Z axis */
-            if (delta > 0.0f) {
-                position->z = block_box.min.z - 0.4f - 0.001f;
-            } else {
-                position->z = block_box.max.z + 0.4f + 0.001f;
-            }
-            break;
-
-        default:
+    for (int ly = CHUNK_HEIGHT - 1; ly >= 0; --ly) {
+        uint8_t type = chunk_get_voxel(chunk, lx, ly, lz);
+        if (!block_is_air(type) && !block_is_water(type)) {
+            float y = (float)(WORLD_MIN_Y + ly) + 0.5f;
+            world->spawn_position = vec3(0.0f, y, 0.0f);
+            world->spawn_set = true;
             break;
         }
-
-        player_compute_aabb(*position, &player_box);
     }
 }
 
-static void resolve_collision_y(Vec3 *position, float *velocity_y, bool *on_ground,
-                                Block *blocks, int block_count) {
-    AABB player_box;
-    player_compute_aabb(*position, &player_box);
-    *on_ground = false;
+static void chunk_generate(World *world, Chunk *chunk);
 
-    for (int i = 0; i < block_count; ++i) {
-        AABB block_box = block_aabb(blocks[i]);
+static Chunk *world_get_or_create_chunk(World *world, int cx, int cz) {
+    Chunk *existing = world_find_chunk(world, cx, cz);
+    if (existing) return existing;
 
-        if (!aabb_intersect(&player_box, &block_box)) {
+    Chunk *chunk = malloc(sizeof(Chunk));
+    if (!chunk) die("Failed to allocate chunk");
+    chunk_init(chunk, cx, cz);
+
+    bool loaded = chunk_load_from_worldsave(world->save, chunk);
+    if (!loaded) {
+        chunk_generate(world, chunk);
+        chunk->dirty = true;
+        chunk->render_dirty = true;
+    }
+
+    world_try_set_spawn(world, chunk);
+
+    if (world->chunk_count >= world->chunk_capacity) {
+        int new_capacity = world->chunk_capacity > 0 ? world->chunk_capacity * 2 : 64;
+        Chunk **new_chunks = realloc(world->chunks, (size_t)new_capacity * sizeof(Chunk *));
+        if (!new_chunks) die("Failed to allocate chunk list");
+        world->chunks = new_chunks;
+        world->chunk_capacity = new_capacity;
+    }
+
+    world->chunks[world->chunk_count++] = chunk;
+
+    if ((uint32_t)world->chunk_count > MAX_LOADED_CHUNKS) {
+        die("Exceeded maximum loaded chunk count");
+    }
+
+    return chunk;
+}
+
+static void world_unload_chunk_index(World *world, int index) {
+    Chunk *chunk = world->chunks[index];
+
+    if (chunk->dirty) {
+        chunk_store_to_worldsave(world->save, chunk);
+    }
+
+    chunk_destroy(chunk);
+
+    world->chunks[index] = world->chunks[world->chunk_count - 1];
+    world->chunk_count--;
+}
+
+static void world_init(World *world, WorldSave *save) {
+    world->chunks = NULL;
+    world->chunk_count = 0;
+    world->chunk_capacity = 0;
+    world->spawn_position = vec3(0.0f, 4.5f, 0.0f);
+    world->spawn_set = false;
+    world->save = save;
+}
+
+static void world_destroy(World *world) {
+    for (int i = 0; i < world->chunk_count; ++i) {
+        Chunk *chunk = world->chunks[i];
+        if (chunk->dirty) {
+            chunk_store_to_worldsave(world->save, chunk);
+        }
+        chunk_destroy(chunk);
+    }
+    free(world->chunks);
+    world->chunks = NULL;
+    world->chunk_count = 0;
+    world->chunk_capacity = 0;
+}
+
+static void world_update_chunks(World *world, Vec3 player_pos) {
+    IVec3 center_cell = world_to_cell(player_pos);
+    int center_cx = cell_to_chunk_coord(center_cell.x);
+    int center_cz = cell_to_chunk_coord(center_cell.z);
+
+    for (int dz = -ACTIVE_CHUNK_RADIUS; dz <= ACTIVE_CHUNK_RADIUS; ++dz) {
+        for (int dx = -ACTIVE_CHUNK_RADIUS; dx <= ACTIVE_CHUNK_RADIUS; ++dx) {
+            world_get_or_create_chunk(world, center_cx + dx, center_cz + dz);
+        }
+    }
+
+    for (int i = 0; i < world->chunk_count; ) {
+        Chunk *chunk = world->chunks[i];
+        int dx = chunk->cx - center_cx;
+        int dz = chunk->cz - center_cz;
+
+        if (abs(dx) > ACTIVE_CHUNK_RADIUS + CHUNK_UNLOAD_MARGIN ||
+            abs(dz) > ACTIVE_CHUNK_RADIUS + CHUNK_UNLOAD_MARGIN)
+        {
+            world_unload_chunk_index(world, i);
             continue;
         }
 
-        if (*velocity_y < 0.0f) {
-            position->y = block_box.max.y;
-            *velocity_y = 0.0f;
-            *on_ground = true;
-        } else if (*velocity_y > 0.0f) {
-            position->y = block_box.min.y - 1.8f - 0.001f;
-            *velocity_y = 0.0f;
-        }
-
-        player_compute_aabb(*position, &player_box);
+        ++i;
     }
 }
 
+static bool world_get_block_type(World *world, IVec3 pos, uint8_t *type_out) {
+    if (!world_y_in_bounds(pos.y)) return false;
+
+    int cx = cell_to_chunk_coord(pos.x);
+    int cz = cell_to_chunk_coord(pos.z);
+
+    Chunk *chunk = world_find_chunk(world, cx, cz);
+    if (!chunk) return false;
+
+    int lx = pos.x - chunk_base_coord(cx);
+    int lz = pos.z - chunk_base_coord(cz);
+    int ly = pos.y - WORLD_MIN_Y;
+
+    uint8_t type = chunk_get_voxel(chunk, lx, ly, lz);
+    if (block_is_air(type)) return false;
+
+    if (type_out) *type_out = type;
+    return true;
+}
+
+static bool world_block_exists(World *world, IVec3 pos) {
+    return world_get_block_type(world, pos, NULL);
+}
+
+static void world_mark_chunk_and_neighbors_render_dirty(World *world, IVec3 pos) {
+    int cx = cell_to_chunk_coord(pos.x);
+    int cz = cell_to_chunk_coord(pos.z);
+    Chunk *c = world_find_chunk(world, cx, cz);
+    if (c) c->render_dirty = true;
+
+    /* If on a chunk boundary, neighbor visibility may change too */
+    int base_x = chunk_base_coord(cx);
+    int base_z = chunk_base_coord(cz);
+    int lx = pos.x - base_x;
+    int lz = pos.z - base_z;
+
+    if (lx == 0) {
+        Chunk *n = world_find_chunk(world, cx - 1, cz);
+        if (n) n->render_dirty = true;
+    } else if (lx == CHUNK_SIZE - 1) {
+        Chunk *n = world_find_chunk(world, cx + 1, cz);
+        if (n) n->render_dirty = true;
+    }
+
+    if (lz == 0) {
+        Chunk *n = world_find_chunk(world, cx, cz - 1);
+        if (n) n->render_dirty = true;
+    } else if (lz == CHUNK_SIZE - 1) {
+        Chunk *n = world_find_chunk(world, cx, cz + 1);
+        if (n) n->render_dirty = true;
+    }
+}
+
+static bool world_add_block(World *world, IVec3 pos, uint8_t type) {
+    int cx = cell_to_chunk_coord(pos.x);
+    int cz = cell_to_chunk_coord(pos.z);
+    Chunk *chunk = world_get_or_create_chunk(world, cx, cz);
+
+    bool result = chunk_add_block(chunk, pos, type);
+    if (result) world_mark_chunk_and_neighbors_render_dirty(world, pos);
+    return result;
+}
+
+static bool world_remove_block(World *world, IVec3 pos) {
+    int cx = cell_to_chunk_coord(pos.x);
+    int cz = cell_to_chunk_coord(pos.z);
+    Chunk *chunk = world_find_chunk(world, cx, cz);
+    if (!chunk) return false;
+
+    bool result = chunk_remove_block(chunk, pos);
+    if (result) world_mark_chunk_and_neighbors_render_dirty(world, pos);
+    return result;
+}
+
+static int world_total_render_blocks(World *world) {
+    int total = 0;
+    for (int i = 0; i < world->chunk_count; ++i) {
+        Chunk *chunk = world->chunks[i];
+        if (chunk->render_dirty) {
+            chunk_rebuild_render_list(world, chunk);
+        }
+        total += chunk->block_count;
+    }
+    return total;
+}
+
 /* -------------------------------------------------------------------------- */
-/* World Generation                                                           */
+/* Chunk Generation                                                           */
 /* -------------------------------------------------------------------------- */
 
-typedef struct {
-    Vec3 spawn_position;
-} WorldGenResult;
-
-static WorldGenResult generate_world(Block *blocks, int *block_count, int max_blocks) {
-    static const int WORLD_RADIUS = 30;
+static void chunk_generate(World *world, Chunk *chunk) {
     static const int SEA_LEVEL = 3;
     static const int BEDROCK_DEPTH = -4;
 
-    *block_count = 0;
-    WorldGenResult result = { .spawn_position = vec3(0.0f, 4.5f, 0.0f) };
+    int base_x = chunk_base_coord(chunk->cx);
+    int base_z = chunk_base_coord(chunk->cz);
 
-    for (int x = -WORLD_RADIUS; x <= WORLD_RADIUS; ++x) {
-        for (int z = -WORLD_RADIUS; z <= WORLD_RADIUS; ++z) {
-            float fx = (float)x;
-            float fz = (float)z;
+    for (int lx = 0; lx < CHUNK_SIZE; ++lx) {
+        int world_x = base_x + lx;
 
-            bool forced_plains = (abs(x) < 5 && abs(z) < 5);
+        for (int lz = 0; lz < CHUNK_SIZE; ++lz) {
+            int world_z = base_z + lz;
+
+            float fx = (float)world_x;
+            float fz = (float)world_z;
+
+            bool forced_plains = (abs(world_x) < 5 && abs(world_z) < 5);
 
             float base = fbm2d(fx * 0.045f, fz * 0.045f, 4, 2.0f, 0.5f, 1234u);
             float detail = fbm2d(fx * 0.12f, fz * 0.12f, 3, 2.15f, 0.5f, 5678u);
@@ -569,40 +1099,197 @@ static WorldGenResult generate_world(Block *blocks, int *block_count, int max_bl
             }
 
             for (int y = BEDROCK_DEPTH; y < ground_y - 3; ++y) {
-                block_add_checked(blocks, block_count, max_blocks, (IVec3){x, y, z}, BLOCK_STONE);
+                chunk_add_block(chunk, (IVec3){world_x, y, world_z}, BLOCK_STONE);
             }
 
             for (int y = ground_y - 3; y < ground_y; ++y) {
-                if (y < BEDROCK_DEPTH) {
-                    continue;
-                }
+                if (y < BEDROCK_DEPTH) continue;
 
                 BlockType filler = BLOCK_DIRT;
-                if (surface == BLOCK_SAND) {
-                    filler = BLOCK_SAND;
-                } else if (surface == BLOCK_STONE) {
-                    filler = BLOCK_STONE;
-                }
+                if (surface == BLOCK_SAND) filler = BLOCK_SAND;
+                else if (surface == BLOCK_STONE) filler = BLOCK_STONE;
 
-                block_add_checked(blocks, block_count, max_blocks, (IVec3){x, y, z}, filler);
+                chunk_add_block(chunk, (IVec3){world_x, y, world_z}, filler);
             }
 
-            block_add_checked(blocks, block_count, max_blocks, (IVec3){x, ground_y, z}, surface);
+            chunk_add_block(chunk, (IVec3){world_x, ground_y, world_z}, surface);
 
             bool fill_with_water = is_river || ground_y < SEA_LEVEL;
             if (fill_with_water) {
                 for (int y = ground_y + 1; y <= SEA_LEVEL; ++y) {
-                    block_add_checked(blocks, block_count, max_blocks, (IVec3){x, y, z}, BLOCK_WATER);
+                    chunk_add_block(chunk, (IVec3){world_x, y, world_z}, BLOCK_WATER);
                 }
             }
 
-            if (x == 0 && z == 0) {
-                result.spawn_position = vec3(0.0f, (float)ground_y + 0.5f, 0.0f);
+            if (!world->spawn_set && world_x == 0 && world_z == 0) {
+                world->spawn_position = vec3(0.0f, (float)ground_y + 0.5f, 0.0f);
+                world->spawn_set = true;
             }
+        }
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Utility Functions                                                          */
+/* -------------------------------------------------------------------------- */
+
+static bool is_key_pressed(const bool *keys, KeySym sym) {
+    if (sym < 256) return keys[sym];
+    return false;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Raycast                                                                    */
+/* -------------------------------------------------------------------------- */
+
+typedef struct {
+    bool hit;
+    IVec3 cell;
+    IVec3 normal;
+    uint8_t type;
+} RayHit;
+
+static RayHit raycast_blocks(World *world, Vec3 origin, Vec3 direction, float max_distance) {
+    const float step = 0.05f;
+    RayHit result = {0};
+    Vec3 dir = vec3_normalize(direction);
+
+    IVec3 previous_cell = world_to_cell(origin);
+
+    for (float t = 0.0f; t <= max_distance; t += step) {
+        Vec3 point = vec3_add(origin, vec3_scale(dir, t));
+        IVec3 cell = world_to_cell(point);
+
+        if (!ivec3_equal(cell, previous_cell)) {
+            uint8_t type = 0;
+            if (world_get_block_type(world, cell, &type)) {
+                result.hit = true;
+                result.cell = cell;
+                result.normal = (IVec3){
+                    sign_int(previous_cell.x - cell.x),
+                    sign_int(previous_cell.y - cell.y),
+                    sign_int(previous_cell.z - cell.z)
+                };
+                result.type = type;
+                break;
+            }
+            previous_cell = cell;
         }
     }
 
     return result;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Player Collision Helpers                                                   */
+/* -------------------------------------------------------------------------- */
+
+static void resolve_collision_axis(World *world, Vec3 *position, float delta, int axis) {
+    if (delta == 0.0f) return;
+
+    AABB player_box;
+    player_compute_aabb(*position, &player_box);
+
+    int min_x = (int)floorf(player_box.min.x - 0.5f);
+    int max_x = (int)floorf(player_box.max.x + 0.5f);
+    int min_y = (int)floorf(player_box.min.y - 0.5f);
+    int max_y = (int)floorf(player_box.max.y + 0.5f);
+    int min_z = (int)floorf(player_box.min.z - 0.5f);
+    int max_z = (int)floorf(player_box.max.z + 0.5f);
+
+    for (int x = min_x; x <= max_x; ++x) {
+        for (int y = min_y; y <= max_y; ++y) {
+            if (!world_y_in_bounds(y)) continue;
+            for (int z = min_z; z <= max_z; ++z) {
+                uint8_t type = 0;
+                if (!world_get_block_type(world, (IVec3){x, y, z}, &type)) continue;
+                if (type == BLOCK_WATER) continue;
+
+                player_compute_aabb(*position, &player_box);
+                AABB block_box = cell_aabb((IVec3){x, y, z});
+
+                if (!((player_box.min.x < block_box.max.x && player_box.max.x > block_box.min.x) &&
+                      (player_box.min.y < block_box.max.y && player_box.max.y > block_box.min.y) &&
+                      (player_box.min.z < block_box.max.z && player_box.max.z > block_box.min.z)))
+                {
+                    continue;
+                }
+
+                switch (axis) {
+                case 0: /* X axis */
+                    if (delta > 0.0f) position->x = block_box.min.x - 0.4f - 0.001f;
+                    else position->x = block_box.max.x + 0.4f + 0.001f;
+                    break;
+                case 2: /* Z axis */
+                    if (delta > 0.0f) position->z = block_box.min.z - 0.4f - 0.001f;
+                    else position->z = block_box.max.z + 0.4f + 0.001f;
+                    break;
+                default:
+                    break;
+                }
+
+                player_compute_aabb(*position, &player_box);
+            }
+        }
+    }
+}
+
+static void resolve_collision_y(World *world, Vec3 *position, float *velocity_y, bool *on_ground) {
+    AABB player_box;
+    player_compute_aabb(*position, &player_box);
+    *on_ground = false;
+
+    int min_x = (int)floorf(player_box.min.x - 0.5f);
+    int max_x = (int)floorf(player_box.max.x + 0.5f);
+    int min_y = (int)floorf(player_box.min.y - 0.5f);
+    int max_y = (int)floorf(player_box.max.y + 0.5f);
+    int min_z = (int)floorf(player_box.min.z - 0.5f);
+    int max_z = (int)floorf(player_box.max.z + 0.5f);
+
+    for (int x = min_x; x <= max_x; ++x) {
+        for (int y = min_y; y <= max_y; ++y) {
+            if (!world_y_in_bounds(y)) continue;
+            for (int z = min_z; z <= max_z; ++z) {
+                uint8_t type = 0;
+                if (!world_get_block_type(world, (IVec3){x, y, z}, &type)) continue;
+                if (type == BLOCK_WATER) continue;
+
+                player_compute_aabb(*position, &player_box);
+                AABB block_box = cell_aabb((IVec3){x, y, z});
+
+                if (!((player_box.min.x < block_box.max.x && player_box.max.x > block_box.min.x) &&
+                      (player_box.min.y < block_box.max.y && player_box.max.y > block_box.min.y) &&
+                      (player_box.min.z < block_box.max.z && player_box.max.z > block_box.min.z)))
+                {
+                    continue;
+                }
+
+                if (*velocity_y < 0.0f) {
+                    position->y = block_box.max.y;
+                    *velocity_y = 0.0f;
+                    *on_ground = true;
+                } else if (*velocity_y > 0.0f) {
+                    position->y = block_box.min.y - 1.8f - 0.001f;
+                    *velocity_y = 0.0f;
+                }
+
+                player_compute_aabb(*position, &player_box);
+            }
+        }
+    }
+}
+
+static bool block_overlaps_player(const Player *player, IVec3 cell) {
+    AABB player_box;
+    player_compute_aabb(player->position, &player_box);
+
+    AABB block_box = cell_aabb(cell);
+    bool intersect =
+        (player_box.min.x < block_box.max.x && player_box.max.x > block_box.min.x) &&
+        (player_box.min.y < block_box.max.y && player_box.max.y > block_box.min.y) &&
+        (player_box.min.z < block_box.max.z && player_box.max.z > block_box.min.z);
+
+    return intersect;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -656,10 +1343,7 @@ static uint32_t find_memory_type(VkPhysicalDevice physical_device,
     for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
         bool supported = (type_filter & (1 << i)) != 0;
         bool matches = (memory_properties.memoryTypes[i].propertyFlags & properties) == properties;
-
-        if (supported && matches) {
-            return i;
-        }
+        if (supported && matches) return i;
     }
 
     die("Failed to find suitable memory type");
@@ -876,22 +1560,13 @@ typedef struct {
 
 static bool load_png_rgba(const char *filename, ImageData *out_image) {
     FILE *fp = fopen(filename, "rb");
-    if (!fp) {
-        return false;
-    }
+    if (!fp) return false;
 
     png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    if (!png) {
-        fclose(fp);
-        return false;
-    }
+    if (!png) { fclose(fp); return false; }
 
     png_infop info = png_create_info_struct(png);
-    if (!info) {
-        png_destroy_read_struct(&png, NULL, NULL);
-        fclose(fp);
-        return false;
-    }
+    if (!info) { png_destroy_read_struct(&png, NULL, NULL); fclose(fp); return false; }
 
     if (setjmp(png_jmpbuf(png))) {
         png_destroy_read_struct(&png, &info, NULL);
@@ -907,23 +1582,11 @@ static bool load_png_rgba(const char *filename, ImageData *out_image) {
     png_byte bit_depth = png_get_bit_depth(png, info);
     png_byte color_type = png_get_color_type(png, info);
 
-    if (bit_depth == 16) {
-        png_set_strip_16(png);
-    }
-    if (color_type == PNG_COLOR_TYPE_PALETTE) {
-        png_set_palette_to_rgb(png);
-    }
-    if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) {
-        png_set_expand_gray_1_2_4_to_8(png);
-    }
-    if (png_get_valid(png, info, PNG_INFO_tRNS)) {
-        png_set_tRNS_to_alpha(png);
-    }
-    if (color_type == PNG_COLOR_TYPE_GRAY ||
-        color_type == PNG_COLOR_TYPE_GRAY_ALPHA)
-    {
-        png_set_gray_to_rgb(png);
-    }
+    if (bit_depth == 16) png_set_strip_16(png);
+    if (color_type == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png);
+    if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) png_set_expand_gray_1_2_4_to_8(png);
+    if (png_get_valid(png, info, PNG_INFO_tRNS)) png_set_tRNS_to_alpha(png);
+    if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA) png_set_gray_to_rgb(png);
     if (color_type == PNG_COLOR_TYPE_RGB ||
         color_type == PNG_COLOR_TYPE_GRAY ||
         color_type == PNG_COLOR_TYPE_PALETTE)
@@ -967,12 +1630,8 @@ static bool load_png_rgba(const char *filename, ImageData *out_image) {
 }
 
 static void free_image(ImageData *image) {
-    if (image->pixels) {
-        free(image->pixels);
-    }
-    image->pixels = NULL;
-    image->width = 0;
-    image->height = 0;
+    free(image->pixels);
+    *image = (ImageData){0};
 }
 
 static VkSampler create_nearest_sampler(VkDevice device) {
@@ -1032,27 +1691,16 @@ static void texture_create_from_pixels(VkDevice device,
                  &texture->image,
                  &texture->memory);
 
-    transition_image_layout(device,
-                            command_pool,
-                            graphics_queue,
-                            texture->image,
-                            VK_FORMAT_R8G8B8A8_SRGB,
+    transition_image_layout(device, command_pool, graphics_queue,
+                            texture->image, VK_FORMAT_R8G8B8A8_SRGB,
                             VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    copy_buffer_to_image(device,
-                         command_pool,
-                         graphics_queue,
-                         staging_buffer,
-                         texture->image,
-                         width,
-                         height);
+    copy_buffer_to_image(device, command_pool, graphics_queue,
+                         staging_buffer, texture->image, width, height);
 
-    transition_image_layout(device,
-                            command_pool,
-                            graphics_queue,
-                            texture->image,
-                            VK_FORMAT_R8G8B8A8_SRGB,
+    transition_image_layout(device, command_pool, graphics_queue,
+                            texture->image, VK_FORMAT_R8G8B8A8_SRGB,
                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
@@ -1082,18 +1730,10 @@ static void texture_create_from_file(VkDevice device,
                                      const char *filename,
                                      Texture *texture) {
     ImageData image = {0};
-    if (!load_png_rgba(filename, &image)) {
-        die("Failed to load PNG texture");
-    }
+    if (!load_png_rgba(filename, &image)) die("Failed to load PNG texture");
 
-    texture_create_from_pixels(device,
-                               physical_device,
-                               command_pool,
-                               graphics_queue,
-                               image.pixels,
-                               image.width,
-                               image.height,
-                               texture);
+    texture_create_from_pixels(device, physical_device, command_pool, graphics_queue,
+                               image.pixels, image.width, image.height, texture);
 
     free_image(&image);
 }
@@ -1102,19 +1742,11 @@ static void texture_create_solid(VkDevice device,
                                  VkPhysicalDevice physical_device,
                                  VkCommandPool command_pool,
                                  VkQueue graphics_queue,
-                                 uint8_t r,
-                                 uint8_t g,
-                                 uint8_t b,
-                                 uint8_t a,
+                                 uint8_t r, uint8_t g, uint8_t b, uint8_t a,
                                  Texture *texture) {
     uint8_t pixel[4] = {r, g, b, a};
-    texture_create_from_pixels(device,
-                               physical_device,
-                               command_pool,
-                               graphics_queue,
-                               pixel,
-                               1, 1,
-                               texture);
+    texture_create_from_pixels(device, physical_device, command_pool, graphics_queue,
+                               pixel, 1, 1, texture);
 }
 
 static void texture_destroy(VkDevice device, Texture *texture) {
@@ -1131,24 +1763,16 @@ static void texture_destroy(VkDevice device, Texture *texture) {
 
 static char *read_binary_file(const char *filepath, size_t *out_size) {
     FILE *file = fopen(filepath, "rb");
-    if (!file) {
-        return NULL;
-    }
+    if (!file) return NULL;
 
     fseek(file, 0, SEEK_END);
     long file_size = ftell(file);
     fseek(file, 0, SEEK_SET);
 
-    if (file_size <= 0) {
-        fclose(file);
-        return NULL;
-    }
+    if (file_size <= 0) { fclose(file); return NULL; }
 
     char *buffer = malloc((size_t)file_size);
-    if (!buffer) {
-        fclose(file);
-        return NULL;
-    }
+    if (!buffer) { fclose(file); return NULL; }
 
     size_t read = fread(buffer, 1, (size_t)file_size, file);
     fclose(file);
@@ -1165,9 +1789,7 @@ static char *read_binary_file(const char *filepath, size_t *out_size) {
 static VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
     size_t size = 0;
     char *code = read_binary_file(filepath, &size);
-    if (!code) {
-        die("Failed to read shader file");
-    }
+    if (!code) die("Failed to read shader file");
 
     VkShaderModuleCreateInfo create_info = {0};
     create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
@@ -1189,6 +1811,16 @@ typedef struct {
     Vec3 pos;
     Vec2 uv;
 } Vertex;
+
+typedef struct {
+    float x, y, z;
+    uint32_t type;
+} InstanceData;
+
+typedef struct {
+    Mat4 view;
+    Mat4 proj;
+} PushConstants;
 
 static const Vertex BLOCK_VERTICES[] = {
     /* Front */
@@ -1255,18 +1887,6 @@ static const uint16_t EDGE_INDICES[] = {
 };
 
 /* -------------------------------------------------------------------------- */
-/* Uniform Data                                                               */
-/* -------------------------------------------------------------------------- */
-
-typedef struct {
-    Mat4 model;
-    Mat4 view;
-    Mat4 proj;
-    uint32_t block_type;
-    uint32_t pad[3];
-} UniformBufferObject;
-
-/* -------------------------------------------------------------------------- */
 /* Vulkan Swapchain Resources                                                 */
 /* -------------------------------------------------------------------------- */
 
@@ -1279,11 +1899,11 @@ typedef struct {
     VkPipeline pipeline_solid;
     VkPipeline pipeline_wireframe;
     VkPipeline pipeline_crosshair;
+
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet *descriptor_sets_normal;
     VkDescriptorSet *descriptor_sets_highlight;
-    VkBuffer *uniform_buffers;
-    VkDeviceMemory *uniform_memories;
+
     VkCommandBuffer *command_buffers;
 
     VkImage depth_image;
@@ -1293,7 +1913,6 @@ typedef struct {
     uint32_t image_count;
     VkExtent2D extent;
     VkFormat format;
-    VkDeviceSize ubo_stride;
 } SwapchainResources;
 
 static void swapchain_resources_reset(SwapchainResources *res) {
@@ -1307,17 +1926,6 @@ static void swapchain_destroy(VkDevice device,
         vkFreeCommandBuffers(device, command_pool, res->image_count, res->command_buffers);
         free(res->command_buffers);
         res->command_buffers = NULL;
-    }
-
-    if (res->uniform_buffers) {
-        for (uint32_t i = 0; i < res->image_count; ++i) {
-            vkDestroyBuffer(device, res->uniform_buffers[i], NULL);
-            vkFreeMemory(device, res->uniform_memories[i], NULL);
-        }
-        free(res->uniform_buffers);
-        free(res->uniform_memories);
-        res->uniform_buffers = NULL;
-        res->uniform_memories = NULL;
     }
 
     if (res->descriptor_pool != VK_NULL_HANDLE) {
@@ -1337,12 +1945,10 @@ static void swapchain_destroy(VkDevice device,
         vkDestroyPipeline(device, res->pipeline_crosshair, NULL);
         res->pipeline_crosshair = VK_NULL_HANDLE;
     }
-
     if (res->pipeline_wireframe != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, res->pipeline_wireframe, NULL);
         res->pipeline_wireframe = VK_NULL_HANDLE;
     }
-
     if (res->pipeline_solid != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, res->pipeline_solid, NULL);
         res->pipeline_solid = VK_NULL_HANDLE;
@@ -1374,29 +1980,22 @@ static void swapchain_destroy(VkDevice device,
         res->image_views = NULL;
     }
 
-    if (res->images) {
-        free(res->images);
-        res->images = NULL;
-    }
+    free(res->images);
+    res->images = NULL;
 
     if (res->swapchain != VK_NULL_HANDLE) {
         vkDestroySwapchainKHR(device, res->swapchain, NULL);
         res->swapchain = VK_NULL_HANDLE;
     }
 
-    if (res->descriptor_sets_normal) {
-        free(res->descriptor_sets_normal);
-        res->descriptor_sets_normal = NULL;
-    }
-    if (res->descriptor_sets_highlight) {
-        free(res->descriptor_sets_highlight);
-        res->descriptor_sets_highlight = NULL;
-    }
+    free(res->descriptor_sets_normal);
+    free(res->descriptor_sets_highlight);
+    res->descriptor_sets_normal = NULL;
+    res->descriptor_sets_highlight = NULL;
 
     res->image_count = 0;
     res->extent = (VkExtent2D){0, 0};
     res->format = VK_FORMAT_UNDEFINED;
-    res->ubo_stride = 0;
 }
 
 static void create_depth_resources(VkDevice device,
@@ -1431,7 +2030,7 @@ static void create_depth_resources(VkDevice device,
 }
 
 /* -------------------------------------------------------------------------- */
-/* Swapchain creation (monolithic but tidy)                                   */
+/* Swapchain creation                                                         */
 /* -------------------------------------------------------------------------- */
 
 typedef struct {
@@ -1447,40 +2046,12 @@ typedef struct {
     const Texture *textures;
     uint32_t texture_count;
     const Texture *black_texture;
-    VkBuffer vertex_buffer;
-    VkBuffer index_buffer;
-    VkBuffer edge_vertex_buffer;
-    VkBuffer edge_index_buffer;
-    VkBuffer crosshair_vertex_buffer;
-    VkDeviceMemory crosshair_vertex_memory;
-    VkBuffer uniform_template_buffer;
 } SwapchainContext;
-
-static void update_crosshair_vertices(VkDevice device,
-                                      VkDeviceMemory memory,
-                                      VkExtent2D extent) {
-    const float crosshair_size = 0.03f;
-    float aspect_correction = (float)extent.height / (float)extent.width;
-
-    Vertex crosshair_vertices[] = {
-        {{-crosshair_size * aspect_correction, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ crosshair_size * aspect_correction, 0.0f, 0.0f}, {1.0f, 0.0f}},
-        {{ 0.0f, -crosshair_size, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.0f,  crosshair_size, 0.0f}, {1.0f, 0.0f}},
-    };
-
-    void *mapped = NULL;
-    VK_CHECK(vkMapMemory(device, memory, 0, sizeof(crosshair_vertices), 0, &mapped));
-    memcpy(mapped, crosshair_vertices, sizeof(crosshair_vertices));
-    vkUnmapMemory(device, memory);
-}
 
 static void swapchain_create(SwapchainContext *ctx,
                              SwapchainResources *res,
                              uint32_t framebuffer_width,
-                             uint32_t framebuffer_height,
-                             uint32_t max_blocks,
-                             uint32_t extra_ubos) {
+                             uint32_t framebuffer_height) {
     VkPhysicalDevice physical_device = ctx->physical_device;
     VkDevice device = ctx->device;
     VkSurfaceKHR surface = ctx->surface;
@@ -1549,16 +2120,11 @@ static void swapchain_create(SwapchainContext *ctx,
         view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         view_info.subresourceRange.levelCount = 1;
         view_info.subresourceRange.layerCount = 1;
-
         VK_CHECK(vkCreateImageView(device, &view_info, NULL, &res->image_views[i]));
     }
 
-    create_depth_resources(device,
-                           physical_device,
-                           extent,
-                           &res->depth_image,
-                           &res->depth_memory,
-                           &res->depth_view);
+    create_depth_resources(device, physical_device, extent,
+                           &res->depth_image, &res->depth_memory, &res->depth_view);
 
     VkAttachmentDescription attachments[2] = {0};
 
@@ -1626,12 +2192,17 @@ static void swapchain_create(SwapchainContext *ctx,
     shader_stages[1].module = ctx->frag_shader;
     shader_stages[1].pName = "main";
 
-    VkVertexInputBindingDescription binding = {0};
-    binding.binding = 0;
-    binding.stride = sizeof(Vertex);
-    binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    /* Vertex binding 0: per-vertex; binding 1: per-instance */
+    VkVertexInputBindingDescription bindings[2] = {0};
+    bindings[0].binding = 0;
+    bindings[0].stride = sizeof(Vertex);
+    bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
 
-    VkVertexInputAttributeDescription attributes[2] = {0};
+    bindings[1].binding = 1;
+    bindings[1].stride = sizeof(InstanceData);
+    bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+    VkVertexInputAttributeDescription attributes[4] = {0};
     attributes[0].binding = 0;
     attributes[0].location = 0;
     attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -1642,10 +2213,20 @@ static void swapchain_create(SwapchainContext *ctx,
     attributes[1].format = VK_FORMAT_R32G32_SFLOAT;
     attributes[1].offset = offsetof(Vertex, uv);
 
+    attributes[2].binding = 1;
+    attributes[2].location = 2;
+    attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
+    attributes[2].offset = offsetof(InstanceData, x);
+
+    attributes[3].binding = 1;
+    attributes[3].location = 3;
+    attributes[3].format = VK_FORMAT_R32_UINT;
+    attributes[3].offset = offsetof(InstanceData, type);
+
     VkPipelineVertexInputStateCreateInfo vertex_input = {0};
     vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertex_input.vertexBindingDescriptionCount = 1;
-    vertex_input.pVertexBindingDescriptions = &binding;
+    vertex_input.vertexBindingDescriptionCount = ARRAY_LENGTH(bindings);
+    vertex_input.pVertexBindingDescriptions = bindings;
     vertex_input.vertexAttributeDescriptionCount = ARRAY_LENGTH(attributes);
     vertex_input.pVertexAttributeDescriptions = attributes;
 
@@ -1734,12 +2315,10 @@ static void swapchain_create(SwapchainContext *ctx,
     pipeline_info.pInputAssemblyState = &input_assembly_lines;
     pipeline_info.pRasterizationState = &raster_wire;
     pipeline_info.pDepthStencilState = &depth_wire;
-
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &res->pipeline_wireframe));
 
     pipeline_info.pRasterizationState = &raster_cross;
     pipeline_info.pDepthStencilState = &depth_cross;
-
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &res->pipeline_crosshair));
 
     res->framebuffers = malloc(sizeof(VkFramebuffer) * image_count);
@@ -1758,49 +2337,21 @@ static void swapchain_create(SwapchainContext *ctx,
         VK_CHECK(vkCreateFramebuffer(device, &framebuffer_info, NULL, &res->framebuffers[i]));
     }
 
-    VkPhysicalDeviceProperties properties;
-    vkGetPhysicalDeviceProperties(physical_device, &properties);
-
-    VkDeviceSize ubo_size = sizeof(UniformBufferObject);
-    VkDeviceSize min_align = properties.limits.minUniformBufferOffsetAlignment;
-    if (min_align > 0) {
-        ubo_size = (ubo_size + min_align - 1) & ~(min_align - 1);
-    }
-    res->ubo_stride = ubo_size;
-
-    VkDeviceSize buffer_size = ubo_size * (max_blocks + extra_ubos);
-
-    res->uniform_buffers = malloc(sizeof(VkBuffer) * image_count);
-    res->uniform_memories = malloc(sizeof(VkDeviceMemory) * image_count);
-
-    for (uint32_t i = 0; i < image_count; ++i) {
-        create_buffer(device,
-                      physical_device,
-                      buffer_size,
-                      VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-                      VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                      &res->uniform_buffers[i],
-                      &res->uniform_memories[i]);
-    }
-
-    VkDescriptorPoolSize pool_sizes[2] = {0};
-    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    pool_sizes[0].descriptorCount = image_count * 2;
-    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_sizes[1].descriptorCount = image_count * ctx->texture_count * 2;
+    /* Descriptors: only sampler array */
+    VkDescriptorPoolSize pool_size = {0};
+    pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pool_size.descriptorCount = image_count * ctx->texture_count * 2;
 
     VkDescriptorPoolCreateInfo pool_info = {0};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_info.poolSizeCount = ARRAY_LENGTH(pool_sizes);
-    pool_info.pPoolSizes = pool_sizes;
+    pool_info.poolSizeCount = 1;
+    pool_info.pPoolSizes = &pool_size;
     pool_info.maxSets = image_count * 2;
 
     VK_CHECK(vkCreateDescriptorPool(device, &pool_info, NULL, &res->descriptor_pool));
 
     VkDescriptorSetLayout *layouts = malloc(sizeof(VkDescriptorSetLayout) * image_count);
-    for (uint32_t i = 0; i < image_count; ++i) {
-        layouts[i] = ctx->descriptor_set_layout;
-    }
+    for (uint32_t i = 0; i < image_count; ++i) layouts[i] = ctx->descriptor_set_layout;
 
     VkDescriptorSetAllocateInfo alloc_info = {0};
     alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -1817,10 +2368,6 @@ static void swapchain_create(SwapchainContext *ctx,
     free(layouts);
 
     for (uint32_t i = 0; i < image_count; ++i) {
-        VkDescriptorBufferInfo buffer_info = {0};
-        buffer_info.buffer = res->uniform_buffers[i];
-        buffer_info.range = sizeof(UniformBufferObject);
-
         VkDescriptorImageInfo normal_images[BLOCK_TYPE_COUNT];
         VkDescriptorImageInfo highlight_images[BLOCK_TYPE_COUNT];
 
@@ -1837,28 +2384,19 @@ static void swapchain_create(SwapchainContext *ctx,
             highlight_images[HIGHLIGHT_TEXTURE_INDEX].sampler = ctx->black_texture->sampler;
         }
 
-        VkWriteDescriptorSet writes[2] = {0};
-        writes[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[0].dstSet = res->descriptor_sets_normal[i];
-        writes[0].dstBinding = 0;
-        writes[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-        writes[0].descriptorCount = 1;
-        writes[0].pBufferInfo = &buffer_info;
+        VkWriteDescriptorSet write = {0};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstBinding = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+        write.descriptorCount = ctx->texture_count;
 
-        writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        writes[1].dstSet = res->descriptor_sets_normal[i];
-        writes[1].dstBinding = 1;
-        writes[1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        writes[1].descriptorCount = ctx->texture_count;
-        writes[1].pImageInfo = normal_images;
+        write.dstSet = res->descriptor_sets_normal[i];
+        write.pImageInfo = normal_images;
+        vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
 
-        vkUpdateDescriptorSets(device, ARRAY_LENGTH(writes), writes, 0, NULL);
-
-        writes[0].dstSet = res->descriptor_sets_highlight[i];
-        writes[1].dstSet = res->descriptor_sets_highlight[i];
-        writes[1].pImageInfo = highlight_images;
-
-        vkUpdateDescriptorSets(device, ARRAY_LENGTH(writes), writes, 0, NULL);
+        write.dstSet = res->descriptor_sets_highlight[i];
+        write.pImageInfo = highlight_images;
+        vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
     }
 
     res->command_buffers = malloc(sizeof(VkCommandBuffer) * image_count);
@@ -1870,19 +2408,6 @@ static void swapchain_create(SwapchainContext *ctx,
     command_alloc.commandBufferCount = image_count;
 
     VK_CHECK(vkAllocateCommandBuffers(device, &command_alloc, res->command_buffers));
-
-    update_crosshair_vertices(device, ctx->crosshair_vertex_memory, extent);
-}
-
-/* -------------------------------------------------------------------------- */
-/* Utility Functions                                                          */
-/* -------------------------------------------------------------------------- */
-
-static bool is_key_pressed(const bool *keys, KeySym sym) {
-    if (sym < 256) {
-        return keys[sym];
-    }
-    return false;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1890,8 +2415,6 @@ static bool is_key_pressed(const bool *keys, KeySym sym) {
 /* -------------------------------------------------------------------------- */
 
 int main(void) {
-    const uint32_t MAX_BLOCKS = 200000;
-    const uint32_t EXTRA_UBOS = 2; /* highlight + crosshair */
     uint32_t window_width = 800;
     uint32_t window_height = 600;
 
@@ -1900,9 +2423,7 @@ int main(void) {
     /* ---------------------------------------------------------------------- */
 
     Display *display = XOpenDisplay(NULL);
-    if (!display) {
-        die("Failed to open X11 display");
-    }
+    if (!display) die("Failed to open X11 display");
 
     int screen = DefaultScreen(display);
     Window root = RootWindow(display, screen);
@@ -1972,9 +2493,7 @@ int main(void) {
 
     uint32_t device_count = 0;
     VK_CHECK(vkEnumeratePhysicalDevices(instance, &device_count, NULL));
-    if (device_count == 0) {
-        die("No Vulkan-capable GPU found");
-    }
+    if (device_count == 0) die("No Vulkan-capable GPU found");
 
     VkPhysicalDevice *physical_devices = malloc(sizeof(VkPhysicalDevice) * device_count);
     VK_CHECK(vkEnumeratePhysicalDevices(instance, &device_count, physical_devices));
@@ -2002,17 +2521,12 @@ int main(void) {
         }
 
         free(families);
-
-        if (physical_device != VK_NULL_HANDLE) {
-            break;
-        }
+        if (physical_device != VK_NULL_HANDLE) break;
     }
 
     free(physical_devices);
 
-    if (physical_device == VK_NULL_HANDLE) {
-        die("No suitable GPU found");
-    }
+    if (physical_device == VK_NULL_HANDLE) die("No suitable GPU found");
 
     float queue_priority = 1.0f;
     VkDeviceQueueCreateInfo queue_info = {0};
@@ -2065,54 +2579,46 @@ int main(void) {
     };
 
     for (uint32_t i = 0; i < BLOCK_TYPE_COUNT; ++i) {
-        texture_create_from_file(device, physical_device, command_pool, graphics_queue, texture_files[i], &textures[i]);
+        texture_create_from_file(device, physical_device, command_pool, graphics_queue,
+                                 texture_files[i], &textures[i]);
     }
 
     Texture black_texture;
     texture_create_solid(device, physical_device, command_pool, graphics_queue, 0, 0, 0, 255, &black_texture);
 
     /* ---------------------------------------------------------------------- */
-    /* Buffers                                                                 */
+    /* Geometry Buffers (static)                                               */
     /* ---------------------------------------------------------------------- */
 
-    VkBuffer vertex_buffer;
-    VkDeviceMemory vertex_memory;
-    create_buffer(device,
-                  physical_device,
-                  sizeof(BLOCK_VERTICES),
+    VkBuffer block_vertex_buffer;
+    VkDeviceMemory block_vertex_memory;
+    create_buffer(device, physical_device, sizeof(BLOCK_VERTICES),
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  &vertex_buffer,
-                  &vertex_memory);
+                  &block_vertex_buffer, &block_vertex_memory);
 
     void *mapped = NULL;
-    VK_CHECK(vkMapMemory(device, vertex_memory, 0, sizeof(BLOCK_VERTICES), 0, &mapped));
+    VK_CHECK(vkMapMemory(device, block_vertex_memory, 0, sizeof(BLOCK_VERTICES), 0, &mapped));
     memcpy(mapped, BLOCK_VERTICES, sizeof(BLOCK_VERTICES));
-    vkUnmapMemory(device, vertex_memory);
+    vkUnmapMemory(device, block_vertex_memory);
 
-    VkBuffer index_buffer;
-    VkDeviceMemory index_memory;
-    create_buffer(device,
-                  physical_device,
-                  sizeof(BLOCK_INDICES),
+    VkBuffer block_index_buffer;
+    VkDeviceMemory block_index_memory;
+    create_buffer(device, physical_device, sizeof(BLOCK_INDICES),
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  &index_buffer,
-                  &index_memory);
+                  &block_index_buffer, &block_index_memory);
 
-    VK_CHECK(vkMapMemory(device, index_memory, 0, sizeof(BLOCK_INDICES), 0, &mapped));
+    VK_CHECK(vkMapMemory(device, block_index_memory, 0, sizeof(BLOCK_INDICES), 0, &mapped));
     memcpy(mapped, BLOCK_INDICES, sizeof(BLOCK_INDICES));
-    vkUnmapMemory(device, index_memory);
+    vkUnmapMemory(device, block_index_memory);
 
     VkBuffer edge_vertex_buffer;
     VkDeviceMemory edge_vertex_memory;
-    create_buffer(device,
-                  physical_device,
-                  sizeof(EDGE_VERTICES),
+    create_buffer(device, physical_device, sizeof(EDGE_VERTICES),
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  &edge_vertex_buffer,
-                  &edge_vertex_memory);
+                  &edge_vertex_buffer, &edge_vertex_memory);
 
     VK_CHECK(vkMapMemory(device, edge_vertex_memory, 0, sizeof(EDGE_VERTICES), 0, &mapped));
     memcpy(mapped, EDGE_VERTICES, sizeof(EDGE_VERTICES));
@@ -2120,27 +2626,33 @@ int main(void) {
 
     VkBuffer edge_index_buffer;
     VkDeviceMemory edge_index_memory;
-    create_buffer(device,
-                  physical_device,
-                  sizeof(EDGE_INDICES),
+    create_buffer(device, physical_device, sizeof(EDGE_INDICES),
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  &edge_index_buffer,
-                  &edge_index_memory);
+                  &edge_index_buffer, &edge_index_memory);
 
     VK_CHECK(vkMapMemory(device, edge_index_memory, 0, sizeof(EDGE_INDICES), 0, &mapped));
     memcpy(mapped, EDGE_INDICES, sizeof(EDGE_INDICES));
     vkUnmapMemory(device, edge_index_memory);
 
+    /* Crosshair vertices (in clip space, updated on resize to keep aspect) */
     VkBuffer crosshair_vertex_buffer;
     VkDeviceMemory crosshair_vertex_memory;
-    create_buffer(device,
-                  physical_device,
-                  sizeof(Vertex) * 4,
+    create_buffer(device, physical_device, sizeof(Vertex) * 4,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  &crosshair_vertex_buffer,
-                  &crosshair_vertex_memory);
+                  &crosshair_vertex_buffer, &crosshair_vertex_memory);
+
+    /* Instance buffer (blocks + highlight + crosshair) */
+    VkBuffer instance_buffer = VK_NULL_HANDLE;
+    VkDeviceMemory instance_memory = VK_NULL_HANDLE;
+    uint32_t instance_capacity = INITIAL_INSTANCE_CAPACITY;
+
+    create_buffer(device, physical_device,
+                  (VkDeviceSize)instance_capacity * sizeof(InstanceData),
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &instance_buffer, &instance_memory);
 
     /* ---------------------------------------------------------------------- */
     /* Shaders, Descriptor Layout, Pipeline Layout                            */
@@ -2149,32 +2661,37 @@ int main(void) {
     VkShaderModule vert_shader = create_shader_module(device, "shaders/vert.spv");
     VkShaderModule frag_shader = create_shader_module(device, "shaders/frag.spv");
 
-    VkDescriptorSetLayoutBinding ubo_binding = {0};
-    ubo_binding.binding = 0;
-    ubo_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-    ubo_binding.descriptorCount = 1;
-    ubo_binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    /* NOTE: shaders are expected to use:
+       - set=0 binding=0 sampler2D texSamplers[BLOCK_TYPE_COUNT]
+       - vertex inputs: location 0/1 for Vertex, 2/3 for InstanceData
+       - push constants: mat4 view, mat4 proj
+    */
 
     VkDescriptorSetLayoutBinding sampler_binding = {0};
-    sampler_binding.binding = 1;
+    sampler_binding.binding = 0;
     sampler_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     sampler_binding.descriptorCount = BLOCK_TYPE_COUNT;
     sampler_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-    VkDescriptorSetLayoutBinding bindings[] = {ubo_binding, sampler_binding};
-
     VkDescriptorSetLayoutCreateInfo layout_info = {0};
     layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_info.bindingCount = ARRAY_LENGTH(bindings);
-    layout_info.pBindings = bindings;
+    layout_info.bindingCount = 1;
+    layout_info.pBindings = &sampler_binding;
 
     VkDescriptorSetLayout descriptor_layout;
     VK_CHECK(vkCreateDescriptorSetLayout(device, &layout_info, NULL, &descriptor_layout));
+
+    VkPushConstantRange push_range = {0};
+    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    push_range.offset = 0;
+    push_range.size = sizeof(PushConstants);
 
     VkPipelineLayoutCreateInfo pipeline_layout_info = {0};
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_info.setLayoutCount = 1;
     pipeline_layout_info.pSetLayouts = &descriptor_layout;
+    pipeline_layout_info.pushConstantRangeCount = 1;
+    pipeline_layout_info.pPushConstantRanges = &push_range;
 
     VkPipelineLayout pipeline_layout;
     VK_CHECK(vkCreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout));
@@ -2215,23 +2732,21 @@ int main(void) {
         .frag_shader = frag_shader,
         .textures = textures,
         .texture_count = BLOCK_TYPE_COUNT,
-        .black_texture = &black_texture,
-        .vertex_buffer = vertex_buffer,
-        .index_buffer = index_buffer,
-        .edge_vertex_buffer = edge_vertex_buffer,
-        .edge_index_buffer = edge_index_buffer,
-        .crosshair_vertex_buffer = crosshair_vertex_buffer,
-        .crosshair_vertex_memory = crosshair_vertex_memory
+        .black_texture = &black_texture
     };
 
     /* ---------------------------------------------------------------------- */
-    /* Voxel World                                                            */
+    /* World Save + Voxel World                                                */
     /* ---------------------------------------------------------------------- */
 
-    Block *blocks = malloc(sizeof(Block) * MAX_BLOCKS);
-    int block_count = 0;
+    WorldSave save;
+    world_save_init(&save, WORLD_SAVE_FILE);
+    (void)world_save_load(&save);
 
-    WorldGenResult world_info = generate_world(blocks, &block_count, MAX_BLOCKS);
+    World world;
+    world_init(&world, &save);
+    world_update_chunks(&world, world.spawn_position);
+    if (!world.spawn_set) world.spawn_position = vec3(0.0f, 4.5f, 0.0f);
 
     /* ---------------------------------------------------------------------- */
     /* Player / Camera                                                        */
@@ -2243,11 +2758,13 @@ int main(void) {
     const float EYE_HEIGHT = 1.6f;
 
     Player player = {0};
-    player.position = world_info.spawn_position;
+    player.position = world.spawn_position;
 
     Camera camera;
     camera_init(&camera);
     camera.position = vec3_add(player.position, vec3(0.0f, EYE_HEIGHT, 0.0f));
+
+    world_update_chunks(&world, player.position);
 
     /* Input State */
     bool keys[256] = {0};
@@ -2259,6 +2776,9 @@ int main(void) {
 
     struct timespec last_time;
     clock_gettime(CLOCK_MONOTONIC, &last_time);
+
+    struct timespec last_autosave;
+    clock_gettime(CLOCK_MONOTONIC, &last_autosave);
 
     /* ---------------------------------------------------------------------- */
     /* Main Loop                                                               */
@@ -2277,19 +2797,32 @@ int main(void) {
                 continue;
             }
 
-            window_width = attrs.width;
-            window_height = attrs.height;
+            window_width = (uint32_t)attrs.width;
+            window_height = (uint32_t)attrs.height;
 
             swapchain_destroy(device, command_pool, &swapchain);
-            swapchain_create(&swapchain_ctx,
-                             &swapchain,
-                             window_width,
-                             window_height,
-                             MAX_BLOCKS,
-                             EXTRA_UBOS);
+            swapchain_create(&swapchain_ctx, &swapchain, window_width, window_height);
+
+            /* Update crosshair vertices to keep constant size in screen space */
+            const float crosshair_size = 0.03f;
+            float aspect_correction = (float)swapchain.extent.height / (float)swapchain.extent.width;
+
+            Vertex crosshair_vertices[] = {
+                {{-crosshair_size * aspect_correction, 0.0f, 0.0f}, {0.0f, 0.0f}},
+                {{ crosshair_size * aspect_correction, 0.0f, 0.0f}, {1.0f, 0.0f}},
+                {{ 0.0f, -crosshair_size, 0.0f}, {0.0f, 0.0f}},
+                {{ 0.0f,  crosshair_size, 0.0f}, {1.0f, 0.0f}},
+            };
+
+            void *ch = NULL;
+            VK_CHECK(vkMapMemory(device, crosshair_vertex_memory, 0, sizeof(crosshair_vertices), 0, &ch));
+            memcpy(ch, crosshair_vertices, sizeof(crosshair_vertices));
+            vkUnmapMemory(device, crosshair_vertex_memory);
 
             swapchain_needs_recreate = false;
         }
+
+        world_update_chunks(&world, player.position);
 
         bool mouse_moved = false;
         float mouse_x = 0.0f;
@@ -2303,9 +2836,7 @@ int main(void) {
 
             switch (event.type) {
             case ClientMessage:
-                if ((Atom)event.xclient.data.l[0] == wm_delete_window) {
-                    running = false;
-                }
+                if ((Atom)event.xclient.data.l[0] == wm_delete_window) running = false;
                 break;
 
             case ConfigureNotify:
@@ -2325,26 +2856,17 @@ int main(void) {
                         mouse_captured = false;
                         first_mouse = true;
                     }
-                } else if (sym == XK_1) {
-                    current_block_type = BLOCK_DIRT;
-                } else if (sym == XK_2) {
-                    current_block_type = BLOCK_STONE;
-                } else if (sym == XK_3) {
-                    current_block_type = BLOCK_GRASS;
-                } else if (sym == XK_4) {
-                    current_block_type = BLOCK_SAND;
-                } else if (sym == XK_5) {
-                    current_block_type = BLOCK_WATER;
-                } else if (sym < 256) {
-                    keys[sym] = true;
-                }
+                } else if (sym == XK_1) current_block_type = BLOCK_DIRT;
+                else if (sym == XK_2) current_block_type = BLOCK_STONE;
+                else if (sym == XK_3) current_block_type = BLOCK_GRASS;
+                else if (sym == XK_4) current_block_type = BLOCK_SAND;
+                else if (sym == XK_5) current_block_type = BLOCK_WATER;
+                else if (sym < 256) keys[sym] = true;
             } break;
 
             case KeyRelease: {
                 KeySym sym = XLookupKeysym(&event.xkey, 0);
-                if (sym < 256) {
-                    keys[sym] = false;
-                }
+                if (sym < 256) keys[sym] = false;
             } break;
 
             case MotionNotify:
@@ -2367,9 +2889,7 @@ int main(void) {
                         left_click = true;
                     }
                 } else if (event.xbutton.button == Button3) {
-                    if (mouse_captured) {
-                        right_click = true;
-                    }
+                    if (mouse_captured) right_click = true;
                 }
                 break;
 
@@ -2379,8 +2899,8 @@ int main(void) {
         }
 
         if (mouse_captured && mouse_moved) {
-            int center_x = window_width / 2;
-            int center_y = window_height / 2;
+            int center_x = (int)window_width / 2;
+            int center_y = (int)window_height / 2;
 
             if (first_mouse) {
                 last_mouse_x = (float)center_x;
@@ -2426,9 +2946,7 @@ int main(void) {
             if (is_key_pressed(keys, 'a') || is_key_pressed(keys, 'A')) movement_dir = vec3_sub(movement_dir, right);
             if (is_key_pressed(keys, 'd') || is_key_pressed(keys, 'D')) movement_dir = vec3_add(movement_dir, right);
 
-            if (vec3_length(movement_dir) > 0.0f) {
-                movement_dir = vec3_normalize(movement_dir);
-            }
+            if (vec3_length(movement_dir) > 0.0f) movement_dir = vec3_normalize(movement_dir);
 
             move_delta = vec3_scale(movement_dir, camera.movement_speed * delta_time);
             wants_jump = is_key_pressed(keys, ' ') || is_key_pressed(keys, XK_space);
@@ -2442,39 +2960,44 @@ int main(void) {
         player.velocity_y -= GRAVITY * delta_time;
 
         player.position.x += move_delta.x;
-        resolve_collision_axis(&player.position, move_delta.x, 0, blocks, block_count);
+        resolve_collision_axis(&world, &player.position, move_delta.x, 0);
 
         player.position.z += move_delta.z;
-        resolve_collision_axis(&player.position, move_delta.z, 2, blocks, block_count);
+        resolve_collision_axis(&world, &player.position, move_delta.z, 2);
 
         player.position.y += player.velocity_y * delta_time;
-        resolve_collision_y(&player.position, &player.velocity_y, &player.on_ground,
-                            blocks, block_count);
+        resolve_collision_y(&world, &player.position, &player.velocity_y, &player.on_ground);
 
         camera.position = vec3_add(player.position, vec3(0.0f, EYE_HEIGHT, 0.0f));
 
-        RayHit ray_hit = raycast_blocks(camera.position, camera.front, blocks, block_count, 6.0f);
+        RayHit ray_hit = raycast_blocks(&world, camera.position, camera.front, 6.0f);
 
         if (mouse_captured && (left_click || right_click)) {
             if (ray_hit.hit) {
-                if (left_click) {
-                    block_remove(blocks, &block_count, ray_hit.cell);
-                }
+                if (left_click) world_remove_block(&world, ray_hit.cell);
 
                 if (right_click) {
                     if (!(ray_hit.normal.x == 0 && ray_hit.normal.y == 0 && ray_hit.normal.z == 0)) {
                         IVec3 place = ivec3_add(ray_hit.cell, ray_hit.normal);
-                        if (!block_overlaps_player(&player, place)) {
-                            block_add(blocks, &block_count, MAX_BLOCKS, place, current_block_type);
+                        if (!world_block_exists(&world, place) && !block_overlaps_player(&player, place)) {
+                            world_add_block(&world, place, current_block_type);
                         }
                     }
                 }
             }
         }
 
-        if (swapchain_needs_recreate) {
-            continue;
+        /* Periodic autosave (single-file) */
+        double since_autosave =
+            (now.tv_sec - last_autosave.tv_sec) +
+            (now.tv_nsec - last_autosave.tv_nsec) / 1000000000.0;
+
+        if (since_autosave > 5.0) {
+            world_save_flush(&save);
+            last_autosave = now;
         }
+
+        if (swapchain_needs_recreate) continue;
 
         VK_CHECK(vkWaitForFences(device, 1, &in_flight, VK_TRUE, UINT64_MAX));
         VK_CHECK(vkResetFences(device, 1, &in_flight));
@@ -2494,57 +3017,66 @@ int main(void) {
             die("Failed to acquire swapchain image");
         }
 
-        Mat4 view = camera_view_matrix(&camera);
-        Mat4 proj = mat4_perspective(55.0f * (float)M_PI / 180.0f,
-                                     (float)swapchain.extent.width / (float)swapchain.extent.height,
-                                     0.1f,
-                                     100.0f);
+        /* Build instance list */
+        int render_blocks = world_total_render_blocks(&world);
+        uint32_t highlight_instance_index = (uint32_t)render_blocks;
+        uint32_t crosshair_instance_index = (uint32_t)render_blocks + 1;
+        uint32_t total_instances = (uint32_t)render_blocks + 2;
 
-        int highlight_index = block_count;
-        int crosshair_index = block_count + 1;
-        size_t mapped_size = (size_t)swapchain.ubo_stride * (size_t)(block_count + EXTRA_UBOS);
+        if (total_instances > instance_capacity) {
+            uint32_t new_cap = instance_capacity;
+            while (new_cap < total_instances) new_cap *= 2;
+            if (new_cap > MAX_INSTANCE_CAPACITY) die("Exceeded maximum instance buffer capacity");
 
-        void *ubo_ptr = NULL;
-        VK_CHECK(vkMapMemory(device,
-                             swapchain.uniform_memories[image_index],
-                             0,
-                             mapped_size,
-                             0,
-                             &ubo_ptr));
-        char *base = (char *)ubo_ptr;
+            vkDeviceWaitIdle(device);
+            vkDestroyBuffer(device, instance_buffer, NULL);
+            vkFreeMemory(device, instance_memory, NULL);
 
-        for (int i = 0; i < block_count; ++i) {
-            UniformBufferObject ubo = {0};
-            ubo.model = mat4_translate(vec3((float)blocks[i].pos.x,
-                                            (float)blocks[i].pos.y,
-                                            (float)blocks[i].pos.z));
-            ubo.view = view;
-            ubo.proj = proj;
-            ubo.block_type = blocks[i].type;
-
-            memcpy(base + (size_t)i * swapchain.ubo_stride, &ubo, sizeof(ubo));
+            instance_capacity = new_cap;
+            create_buffer(device, physical_device,
+                          (VkDeviceSize)instance_capacity * sizeof(InstanceData),
+                          VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                          &instance_buffer, &instance_memory);
         }
 
+        InstanceData *instances = NULL;
+        VK_CHECK(vkMapMemory(device, instance_memory, 0,
+                             (VkDeviceSize)total_instances * sizeof(InstanceData),
+                             0, (void **)&instances));
+
+        uint32_t w = 0;
+        for (int ci = 0; ci < world.chunk_count; ++ci) {
+            Chunk *chunk = world.chunks[ci];
+            for (int bi = 0; bi < chunk->block_count; ++bi) {
+                Block b = chunk->blocks[bi];
+                instances[w++] = (InstanceData){ (float)b.pos.x, (float)b.pos.y, (float)b.pos.z, (uint32_t)b.type };
+            }
+        }
+
+        /* Highlight + crosshair instances */
         if (ray_hit.hit) {
-            UniformBufferObject ubo = {0};
-            ubo.model = mat4_translate(vec3((float)ray_hit.cell.x,
-                                            (float)ray_hit.cell.y,
-                                            (float)ray_hit.cell.z));
-            ubo.view = view;
-            ubo.proj = proj;
-            ubo.block_type = HIGHLIGHT_TEXTURE_INDEX;
-
-            memcpy(base + (size_t)highlight_index * swapchain.ubo_stride, &ubo, sizeof(ubo));
+            instances[highlight_instance_index] = (InstanceData){
+                (float)ray_hit.cell.x, (float)ray_hit.cell.y, (float)ray_hit.cell.z, (uint32_t)HIGHLIGHT_TEXTURE_INDEX
+            };
+        } else {
+            instances[highlight_instance_index] = (InstanceData){0,0,0,(uint32_t)HIGHLIGHT_TEXTURE_INDEX};
         }
+        instances[crosshair_instance_index] = (InstanceData){0,0,0,(uint32_t)HIGHLIGHT_TEXTURE_INDEX};
 
-        UniformBufferObject cross_ubo = {0};
-        cross_ubo.model = mat4_identity();
-        cross_ubo.view = mat4_identity();
-        cross_ubo.proj = mat4_identity();
-        cross_ubo.block_type = HIGHLIGHT_TEXTURE_INDEX;
+        vkUnmapMemory(device, instance_memory);
 
-        memcpy(base + (size_t)crosshair_index * swapchain.ubo_stride, &cross_ubo, sizeof(cross_ubo));
-        vkUnmapMemory(device, swapchain.uniform_memories[image_index]);
+        /* Matrices */
+        PushConstants pc = {0};
+        pc.view = camera_view_matrix(&camera);
+        pc.proj = mat4_perspective(55.0f * (float)M_PI / 180.0f,
+                                   (float)swapchain.extent.width / (float)swapchain.extent.height,
+                                   0.1f,
+                                   200.0f);
+
+        PushConstants pc_identity = {0};
+        pc_identity.view = mat4_identity();
+        pc_identity.proj = mat4_identity();
 
         VK_CHECK(vkResetCommandBuffer(swapchain.command_buffers[image_index], 0));
 
@@ -2569,32 +3101,43 @@ int main(void) {
 
         vkCmdBeginRenderPass(swapchain.command_buffers[image_index], &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
 
-        VkDeviceSize offsets = 0;
+        VkDeviceSize offsets[2] = {0, 0};
+        VkBuffer vbs[2];
 
+        /* Draw all blocks in one instanced draw */
         vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_solid);
-        vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 1, &vertex_buffer, &offsets);
-        vkCmdBindIndexBuffer(swapchain.command_buffers[image_index], index_buffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
 
-        for (int i = 0; i < block_count; ++i) {
-            uint32_t dynamic_offset = (uint32_t)((VkDeviceSize)i * swapchain.ubo_stride);
-            vkCmdBindDescriptorSets(swapchain.command_buffers[image_index],
-                                    VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                    pipeline_layout,
-                                    0,
-                                    1,
-                                    &swapchain.descriptor_sets_normal[image_index],
-                                    1,
-                                    &dynamic_offset);
+        vbs[0] = block_vertex_buffer;
+        vbs[1] = instance_buffer;
+        vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 2, vbs, offsets);
+        vkCmdBindIndexBuffer(swapchain.command_buffers[image_index], block_index_buffer, 0, VK_INDEX_TYPE_UINT16);
 
-            vkCmdDrawIndexed(swapchain.command_buffers[image_index], ARRAY_LENGTH(BLOCK_INDICES), 1, 0, 0, 0);
+        vkCmdBindDescriptorSets(swapchain.command_buffers[image_index],
+                                VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                pipeline_layout,
+                                0,
+                                1,
+                                &swapchain.descriptor_sets_normal[image_index],
+                                0,
+                                NULL);
+
+        if (render_blocks > 0) {
+            vkCmdDrawIndexed(swapchain.command_buffers[image_index],
+                             (uint32_t)ARRAY_LENGTH(BLOCK_INDICES),
+                             (uint32_t)render_blocks,
+                             0, 0, 0);
         }
 
+        /* Highlight wireframe (1 instance, different mesh/indices) */
         if (ray_hit.hit) {
             vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_wireframe);
-            vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 1, &edge_vertex_buffer, &offsets);
-            vkCmdBindIndexBuffer(swapchain.command_buffers[image_index], edge_index_buffer, 0, VK_INDEX_TYPE_UINT16);
+            vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
 
-            uint32_t dynamic_offset = (uint32_t)((VkDeviceSize)highlight_index * swapchain.ubo_stride);
+            vbs[0] = edge_vertex_buffer;
+            vbs[1] = instance_buffer;
+            vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 2, vbs, offsets);
+            vkCmdBindIndexBuffer(swapchain.command_buffers[image_index], edge_index_buffer, 0, VK_INDEX_TYPE_UINT16);
 
             vkCmdBindDescriptorSets(swapchain.command_buffers[image_index],
                                     VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -2602,28 +3145,35 @@ int main(void) {
                                     0,
                                     1,
                                     &swapchain.descriptor_sets_highlight[image_index],
-                                    1,
-                                    &dynamic_offset);
+                                    0,
+                                    NULL);
 
-            vkCmdDrawIndexed(swapchain.command_buffers[image_index], ARRAY_LENGTH(EDGE_INDICES), 1, 0, 0, 0);
+            vkCmdDrawIndexed(swapchain.command_buffers[image_index],
+                             (uint32_t)ARRAY_LENGTH(EDGE_INDICES),
+                             1,
+                             0, 0, highlight_instance_index);
         }
 
+        /* Crosshair (lines, clip-space geometry, identity matrices) */
         vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_crosshair);
-        vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 1, &crosshair_vertex_buffer, &offsets);
+        vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_identity), &pc_identity);
 
-        uint32_t cross_offset = (uint32_t)((VkDeviceSize)crosshair_index * swapchain.ubo_stride);
+        vbs[0] = crosshair_vertex_buffer;
+        vbs[1] = instance_buffer;
+        vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 2, vbs, offsets);
+
         vkCmdBindDescriptorSets(swapchain.command_buffers[image_index],
                                 VK_PIPELINE_BIND_POINT_GRAPHICS,
                                 pipeline_layout,
                                 0,
                                 1,
                                 &swapchain.descriptor_sets_highlight[image_index],
-                                1,
-                                &cross_offset);
+                                0,
+                                NULL);
 
-        vkCmdDraw(swapchain.command_buffers[image_index], 4, 1, 0, 0);
+        vkCmdDraw(swapchain.command_buffers[image_index], 4, 1, 0, crosshair_instance_index);
+
         vkCmdEndRenderPass(swapchain.command_buffers[image_index]);
-
         VK_CHECK(vkEndCommandBuffer(swapchain.command_buffers[image_index]));
 
         VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -2662,11 +3212,18 @@ int main(void) {
 
     vkDeviceWaitIdle(device);
 
+    /* Flush all chunks into the single save file */
+    world_destroy(&world);
+    world_save_destroy(&save);
+
     swapchain_destroy(device, command_pool, &swapchain);
 
     vkDestroyFence(device, in_flight, NULL);
     vkDestroySemaphore(device, render_finished, NULL);
     vkDestroySemaphore(device, image_available, NULL);
+
+    vkDestroyBuffer(device, instance_buffer, NULL);
+    vkFreeMemory(device, instance_memory, NULL);
 
     vkDestroyBuffer(device, crosshair_vertex_buffer, NULL);
     vkFreeMemory(device, crosshair_vertex_memory, NULL);
@@ -2676,10 +3233,10 @@ int main(void) {
     vkDestroyBuffer(device, edge_index_buffer, NULL);
     vkFreeMemory(device, edge_index_memory, NULL);
 
-    vkDestroyBuffer(device, vertex_buffer, NULL);
-    vkFreeMemory(device, vertex_memory, NULL);
-    vkDestroyBuffer(device, index_buffer, NULL);
-    vkFreeMemory(device, index_memory, NULL);
+    vkDestroyBuffer(device, block_vertex_buffer, NULL);
+    vkFreeMemory(device, block_vertex_memory, NULL);
+    vkDestroyBuffer(device, block_index_buffer, NULL);
+    vkFreeMemory(device, block_index_memory, NULL);
 
     for (uint32_t i = 0; i < BLOCK_TYPE_COUNT; ++i) {
         texture_destroy(device, &textures[i]);
@@ -2697,11 +3254,9 @@ int main(void) {
     vkDestroySurfaceKHR(instance, surface, NULL);
     vkDestroyInstance(instance, NULL);
 
-    free(blocks);
-
     XFreeCursor(display, invisible_cursor);
     XDestroyWindow(display, window);
     XCloseDisplay(display);
-    
+
     return 0;
 }
