@@ -203,11 +203,11 @@ int main(void) {
 
     Texture textures[BLOCK_TYPE_COUNT];
     const char *texture_files[BLOCK_TYPE_COUNT] = {
-        "dirt.png",
-        "stone.png",
-        "grass.png",
-        "sand.png",
-        "water.png"
+        "textures/dirt.png",
+        "textures/stone.png",
+        "textures/grass.png",
+        "textures/sand.png",
+        "textures/water.png"
     };
 
     for (uint32_t i = 0; i < BLOCK_TYPE_COUNT; ++i) {
