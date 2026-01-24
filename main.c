@@ -68,7 +68,8 @@ int main(void) {
                                         BlackPixel(display, screen),
                                         WhitePixel(display, screen));
 
-    XStoreName(display, window, "Voxel Engine");
+    const char *window_title_game = "Voxel Engine";
+    XStoreName(display, window, window_title_game);
     XSelectInput(display, window,
                  ExposureMask | KeyPressMask | KeyReleaseMask |
                  PointerMotionMask | StructureNotifyMask | ButtonPressMask);
@@ -275,6 +276,35 @@ int main(void) {
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &crosshair_vertex_buffer, &crosshair_vertex_memory);
 
+    /* Inventory grid vertices (clip space, updated on resize) */
+    const uint32_t INVENTORY_MAX_VERTICES = 32;
+    VkBuffer inventory_vertex_buffer;
+    VkDeviceMemory inventory_vertex_memory;
+    uint32_t inventory_vertex_count = 0;
+    create_buffer(device, physical_device, sizeof(Vertex) * INVENTORY_MAX_VERTICES,
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &inventory_vertex_buffer, &inventory_vertex_memory);
+
+    /* Inventory icon quad (clip space, updated on resize) */
+    VkBuffer inventory_icon_vertex_buffer;
+    VkDeviceMemory inventory_icon_vertex_memory;
+    const uint32_t INVENTORY_ICON_VERTEX_COUNT = 6;
+    create_buffer(device, physical_device, sizeof(Vertex) * INVENTORY_ICON_VERTEX_COUNT,
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &inventory_icon_vertex_buffer, &inventory_icon_vertex_memory);
+
+    /* Inventory count digits (clip space, updated per frame) */
+    const uint32_t INVENTORY_COUNT_MAX_VERTICES = 600;
+    VkBuffer inventory_count_vertex_buffer;
+    VkDeviceMemory inventory_count_vertex_memory;
+    uint32_t inventory_count_vertex_count = 0;
+    create_buffer(device, physical_device, sizeof(Vertex) * INVENTORY_COUNT_MAX_VERTICES,
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &inventory_count_vertex_buffer, &inventory_count_vertex_memory);
+
     /* Instance buffer (blocks + highlight + crosshair) */
     VkBuffer instance_buffer = VK_NULL_HANDLE;
     VkDeviceMemory instance_memory = VK_NULL_HANDLE;
@@ -391,6 +421,7 @@ int main(void) {
 
     Player player = {0};
     player.position = world.spawn_position;
+    player.inventory_open = false;
 
     Camera camera;
     camera_init(&camera);
@@ -451,6 +482,36 @@ int main(void) {
             memcpy(ch, crosshair_vertices, sizeof(crosshair_vertices));
             vkUnmapMemory(device, crosshair_vertex_memory);
 
+            /* Inventory grid (3x3) in clip space, keep square on screen */
+            float inv_h_step = 0.0f;
+            float inv_v_step = 0.0f;
+            Vertex inventory_vertices[16];
+            player_inventory_grid_vertices(aspect_correction,
+                                            inventory_vertices,
+                                            (uint32_t)ARRAY_LENGTH(inventory_vertices),
+                                            &inventory_vertex_count,
+                                            &inv_h_step,
+                                            &inv_v_step);
+            void *inv = NULL;
+            VK_CHECK(vkMapMemory(device, inventory_vertex_memory, 0,
+                                 inventory_vertex_count * sizeof(Vertex), 0, &inv));
+            memcpy(inv, inventory_vertices, inventory_vertex_count * sizeof(Vertex));
+            vkUnmapMemory(device, inventory_vertex_memory);
+
+            /* Inventory icon quad (centered at origin, translated by instances) */
+            Vertex icon_vertices[INVENTORY_ICON_VERTEX_COUNT];
+            uint32_t icon_vertex_count = 0;
+            player_inventory_icon_vertices(inv_h_step, inv_v_step,
+                                            icon_vertices,
+                                            INVENTORY_ICON_VERTEX_COUNT,
+                                            &icon_vertex_count);
+
+            void *icon = NULL;
+            VK_CHECK(vkMapMemory(device, inventory_icon_vertex_memory, 0,
+                                 icon_vertex_count * sizeof(Vertex), 0, &icon));
+            memcpy(icon, icon_vertices, icon_vertex_count * sizeof(Vertex));
+            vkUnmapMemory(device, inventory_icon_vertex_memory);
+
             swapchain_needs_recreate = false;
         }
 
@@ -481,6 +542,7 @@ int main(void) {
 
             case KeyPress: {
                 KeySym sym = XLookupKeysym(&event.xkey, 0);
+                bool was_down = (sym < 256) ? keys[sym] : false;
                 if (sym == XK_Escape) {
                     if (mouse_captured) {
                         XUngrabPointer(display, CurrentTime);
@@ -488,12 +550,30 @@ int main(void) {
                         mouse_captured = false;
                         first_mouse = true;
                     }
-                } else if (sym == XK_1) current_block_type = BLOCK_DIRT;
-                else if (sym == XK_2) current_block_type = BLOCK_STONE;
-                else if (sym == XK_3) current_block_type = BLOCK_GRASS;
-                else if (sym == XK_4) current_block_type = BLOCK_SAND;
-                else if (sym == XK_5) current_block_type = BLOCK_WATER;
-                else if (sym < 256) keys[sym] = true;
+                } else if (sym == XK_E || sym == XK_e) {
+                    if (!was_down) {
+                        player.inventory_open = !player.inventory_open;
+                        if (player.inventory_open && mouse_captured) {
+                            XUngrabPointer(display, CurrentTime);
+                            XUndefineCursor(display, window);
+                            mouse_captured = false;
+                            first_mouse = true;
+                        } else if (!player.inventory_open && !mouse_captured) {
+                            XGrabPointer(display, window, True, PointerMotionMask,
+                                         GrabModeAsync, GrabModeAsync, window, None, CurrentTime);
+                            XDefineCursor(display, window, invisible_cursor);
+                            mouse_captured = true;
+                            first_mouse = true;
+                        }
+                        XStoreName(display, window, window_title_game);
+                    }
+                } else if (!player.inventory_open && sym == XK_1) current_block_type = BLOCK_DIRT;
+                else if (!player.inventory_open && sym == XK_2) current_block_type = BLOCK_STONE;
+                else if (!player.inventory_open && sym == XK_3) current_block_type = BLOCK_GRASS;
+                else if (!player.inventory_open && sym == XK_4) current_block_type = BLOCK_SAND;
+                else if (!player.inventory_open && sym == XK_5) current_block_type = BLOCK_WATER;
+
+                if (sym < 256) keys[sym] = true;
             } break;
 
             case KeyRelease: {
@@ -510,6 +590,7 @@ int main(void) {
                 break;
 
             case ButtonPress:
+                if (player.inventory_open) break;
                 if (event.xbutton.button == Button1) {
                     if (!mouse_captured) {
                         XGrabPointer(display, window, True, PointerMotionMask,
@@ -566,7 +647,7 @@ int main(void) {
         Vec3 move_delta = vec3(0.0f, 0.0f, 0.0f);
         bool wants_jump = false;
 
-        if (mouse_captured) {
+        if (mouse_captured && !player.inventory_open) {
             Vec3 forward = camera.front;
             forward.y = 0.0f;
             forward = vec3_normalize(forward);
@@ -608,9 +689,12 @@ int main(void) {
 
         RayHit ray_hit = raycast_blocks(&world, camera.position, camera.front, 6.0f);
 
-        if (mouse_captured && (left_click || right_click)) {
+        if (mouse_captured && !player.inventory_open && (left_click || right_click)) {
             if (ray_hit.hit) {
-                if (left_click) world_remove_block(&world, ray_hit.cell);
+                if (left_click) {
+                    world_remove_block(&world, ray_hit.cell);
+                    player_inventory_add(&player, ray_hit.type);
+                }
 
                 if (right_click) {
                     if (!(ray_hit.normal.x == 0 && ray_hit.normal.y == 0 && ray_hit.normal.z == 0)) {
@@ -655,9 +739,17 @@ int main(void) {
 
         /* Build instance list */
         int render_blocks = world_total_render_blocks(&world);
+        uint32_t inventory_icon_count =
+            player_inventory_icon_instances(&player,
+                                            (float)swapchain.extent.height / (float)swapchain.extent.width,
+                                            NULL,
+                                            0);
+
         uint32_t highlight_instance_index = (uint32_t)render_blocks;
         uint32_t crosshair_instance_index = (uint32_t)render_blocks + 1;
-        uint32_t total_instances = (uint32_t)render_blocks + 2;
+        uint32_t inventory_instance_index = (uint32_t)render_blocks + 2;
+        uint32_t inventory_icons_start = (uint32_t)render_blocks + 3;
+        uint32_t total_instances = (uint32_t)render_blocks + 3 + inventory_icon_count;
 
         if (total_instances > instance_capacity) {
             uint32_t new_cap = instance_capacity;
@@ -699,6 +791,33 @@ int main(void) {
             instances[highlight_instance_index] = (InstanceData){0,0,0,(uint32_t)HIGHLIGHT_TEXTURE_INDEX};
         }
         instances[crosshair_instance_index] = (InstanceData){0,0,0,(uint32_t)HIGHLIGHT_TEXTURE_INDEX};
+        instances[inventory_instance_index] = (InstanceData){0,0,0,(uint32_t)HIGHLIGHT_TEXTURE_INDEX};
+
+        if (inventory_icon_count > 0) {
+            float aspect = (float)swapchain.extent.height / (float)swapchain.extent.width;
+            player_inventory_icon_instances(&player,
+                                            aspect,
+                                            &instances[inventory_icons_start],
+                                            inventory_icon_count);
+        }
+
+        inventory_count_vertex_count = 0;
+        if (player.inventory_open) {
+            float aspect = (float)swapchain.extent.height / (float)swapchain.extent.width;
+            Vertex count_vertices[INVENTORY_COUNT_MAX_VERTICES];
+            inventory_count_vertex_count =
+                player_inventory_count_vertices(&player, aspect,
+                                                count_vertices,
+                                                INVENTORY_COUNT_MAX_VERTICES);
+
+            if (inventory_count_vertex_count > 0) {
+                void *cnt = NULL;
+                VK_CHECK(vkMapMemory(device, inventory_count_vertex_memory, 0,
+                                     inventory_count_vertex_count * sizeof(Vertex), 0, &cnt));
+                memcpy(cnt, count_vertices, inventory_count_vertex_count * sizeof(Vertex));
+                vkUnmapMemory(device, inventory_count_vertex_memory);
+            }
+        }
 
         vkUnmapMemory(device, instance_memory);
 
@@ -713,6 +832,9 @@ int main(void) {
         PushConstants pc_identity = {0};
         pc_identity.view = mat4_identity();
         pc_identity.proj = mat4_identity();
+
+        PushConstants pc_overlay = pc_identity;
+        pc_overlay.proj.m[5] = -1.0f;
 
         VK_CHECK(vkResetCommandBuffer(swapchain.command_buffers[image_index], 0));
 
@@ -791,23 +913,86 @@ int main(void) {
         }
 
         /* Crosshair (lines, clip-space geometry, identity matrices) */
-        vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_crosshair);
-        vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_identity), &pc_identity);
+        if (!player.inventory_open) {
+            vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_crosshair);
+            vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
 
-        vbs[0] = crosshair_vertex_buffer;
-        vbs[1] = instance_buffer;
-        vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 2, vbs, offsets);
+            vbs[0] = crosshair_vertex_buffer;
+            vbs[1] = instance_buffer;
+            vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 2, vbs, offsets);
 
-        vkCmdBindDescriptorSets(swapchain.command_buffers[image_index],
-                                VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                pipeline_layout,
-                                0,
-                                1,
-                                &swapchain.descriptor_sets_highlight[image_index],
-                                0,
-                                NULL);
+            vkCmdBindDescriptorSets(swapchain.command_buffers[image_index],
+                                    VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline_layout,
+                                    0,
+                                    1,
+                                    &swapchain.descriptor_sets_highlight[image_index],
+                                    0,
+                                    NULL);
 
-        vkCmdDraw(swapchain.command_buffers[image_index], 4, 1, 0, crosshair_instance_index);
+            vkCmdDraw(swapchain.command_buffers[image_index], 4, 1, 0, crosshair_instance_index);
+        }
+
+        /* Inventory grid (lines, clip-space geometry, identity matrices) */
+        if (player.inventory_open && inventory_vertex_count > 0) {
+            vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_crosshair);
+            vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
+
+            vbs[0] = inventory_vertex_buffer;
+            vbs[1] = instance_buffer;
+            vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 2, vbs, offsets);
+
+            vkCmdBindDescriptorSets(swapchain.command_buffers[image_index],
+                                    VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline_layout,
+                                    0,
+                                    1,
+                                    &swapchain.descriptor_sets_highlight[image_index],
+                                    0,
+                                    NULL);
+
+            vkCmdDraw(swapchain.command_buffers[image_index], inventory_vertex_count, 1, 0, inventory_instance_index);
+        }
+
+        if (player.inventory_open && inventory_icon_count > 0) {
+            vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_solid);
+            vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
+
+            vbs[0] = inventory_icon_vertex_buffer;
+            vbs[1] = instance_buffer;
+            vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 2, vbs, offsets);
+
+            vkCmdBindDescriptorSets(swapchain.command_buffers[image_index],
+                                    VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline_layout,
+                                    0,
+                                    1,
+                                    &swapchain.descriptor_sets_normal[image_index],
+                                    0,
+                                    NULL);
+
+            vkCmdDraw(swapchain.command_buffers[image_index], INVENTORY_ICON_VERTEX_COUNT, inventory_icon_count, 0, inventory_icons_start);
+        }
+
+        if (player.inventory_open && inventory_count_vertex_count > 0) {
+            vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_crosshair);
+            vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
+
+            vbs[0] = inventory_count_vertex_buffer;
+            vbs[1] = instance_buffer;
+            vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 2, vbs, offsets);
+
+            vkCmdBindDescriptorSets(swapchain.command_buffers[image_index],
+                                    VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline_layout,
+                                    0,
+                                    1,
+                                    &swapchain.descriptor_sets_highlight[image_index],
+                                    0,
+                                    NULL);
+
+            vkCmdDraw(swapchain.command_buffers[image_index], inventory_count_vertex_count, 1, 0, inventory_instance_index);
+        }
 
         vkCmdEndRenderPass(swapchain.command_buffers[image_index]);
         VK_CHECK(vkEndCommandBuffer(swapchain.command_buffers[image_index]));
@@ -863,6 +1048,15 @@ int main(void) {
 
     vkDestroyBuffer(device, crosshair_vertex_buffer, NULL);
     vkFreeMemory(device, crosshair_vertex_memory, NULL);
+
+    vkDestroyBuffer(device, inventory_vertex_buffer, NULL);
+    vkFreeMemory(device, inventory_vertex_memory, NULL);
+
+    vkDestroyBuffer(device, inventory_icon_vertex_buffer, NULL);
+    vkFreeMemory(device, inventory_icon_vertex_memory, NULL);
+
+    vkDestroyBuffer(device, inventory_count_vertex_buffer, NULL);
+    vkFreeMemory(device, inventory_count_vertex_memory, NULL);
 
     vkDestroyBuffer(device, edge_vertex_buffer, NULL);
     vkFreeMemory(device, edge_vertex_memory, NULL);

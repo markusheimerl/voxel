@@ -159,3 +159,216 @@ bool block_overlaps_player(const Player *player, IVec3 cell) {
 
     return intersect;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Inventory                                                                  */
+/* -------------------------------------------------------------------------- */
+
+void player_inventory_add(Player *player, uint8_t type) {
+    for (int i = 0; i < 9; ++i) {
+        if (player->inventory_counts[i] > 0 && player->inventory[i] == type) {
+            if (player->inventory_counts[i] < UINT8_MAX) {
+                player->inventory_counts[i]++;
+            }
+            return;
+        }
+    }
+
+    for (int i = 0; i < 9; ++i) {
+        if (player->inventory_counts[i] == 0) {
+            player->inventory[i] = type;
+            player->inventory_counts[i] = 1;
+            return;
+        }
+    }
+}
+
+static void append_line(Vertex *verts, uint32_t *count, uint32_t max,
+                        float x0, float y0, float x1, float y1) {
+    if (*count + 2 > max) return;
+    verts[(*count)++] = (Vertex){{x0, y0, 0.0f}, {0.0f, 0.0f}};
+    verts[(*count)++] = (Vertex){{x1, y1, 0.0f}, {0.0f, 0.0f}};
+}
+
+static void append_digit(Vertex *verts, uint32_t *count, uint32_t max,
+                         int digit, float x, float y, float w, float h) {
+    if (digit < 0 || digit > 9) return;
+
+    float x0 = x;
+    float x1 = x + w;
+    float y0 = y;
+    float y1 = y + h;
+    float ym = y + h * 0.5f;
+
+    bool seg[7] = {false};
+    switch (digit) {
+    case 0: seg[0]=seg[1]=seg[2]=seg[3]=seg[4]=seg[5]=true; break;
+    case 1: seg[1]=seg[2]=true; break;
+    case 2: seg[0]=seg[1]=seg[6]=seg[4]=seg[3]=true; break;
+    case 3: seg[0]=seg[1]=seg[6]=seg[2]=seg[3]=true; break;
+    case 4: seg[5]=seg[6]=seg[1]=seg[2]=true; break;
+    case 5: seg[0]=seg[5]=seg[6]=seg[2]=seg[3]=true; break;
+    case 6: seg[0]=seg[5]=seg[4]=seg[3]=seg[2]=seg[6]=true; break;
+    case 7: seg[0]=seg[1]=seg[2]=true; break;
+    case 8: seg[0]=seg[1]=seg[2]=seg[3]=seg[4]=seg[5]=seg[6]=true; break;
+    case 9: seg[0]=seg[1]=seg[2]=seg[3]=seg[5]=seg[6]=true; break;
+    default: break;
+    }
+
+    if (seg[0]) append_line(verts, count, max, x0, y1, x1, y1); /* A */
+    if (seg[1]) append_line(verts, count, max, x1, y1, x1, ym); /* B */
+    if (seg[2]) append_line(verts, count, max, x1, ym, x1, y0); /* C */
+    if (seg[3]) append_line(verts, count, max, x0, y0, x1, y0); /* D */
+    if (seg[4]) append_line(verts, count, max, x0, ym, x0, y0); /* E */
+    if (seg[5]) append_line(verts, count, max, x0, y1, x0, ym); /* F */
+    if (seg[6]) append_line(verts, count, max, x0, ym, x1, ym); /* G */
+}
+
+void player_inventory_grid_vertices(float aspect,
+                                    Vertex *out_vertices,
+                                    uint32_t max_vertices,
+                                    uint32_t *out_count,
+                                    float *out_h_step,
+                                    float *out_v_step) {
+    if (!out_vertices || !out_count || max_vertices == 0) return;
+
+    const float inv_half = 0.6f;
+    const float inv_half_x = inv_half * aspect;
+    const float left = -inv_half_x;
+    const float right = inv_half_x;
+    const float bottom = -inv_half;
+    const float top = inv_half;
+    const float h_step = (right - left) / 3.0f;
+    const float v_step = (top - bottom) / 3.0f;
+
+    Vertex inventory_vertices[16] = {
+        {{left,  bottom, 0.0f}, {0.0f, 0.0f}}, {{right, bottom, 0.0f}, {0.0f, 0.0f}},
+        {{right, bottom, 0.0f}, {0.0f, 0.0f}}, {{right, top,    0.0f}, {0.0f, 0.0f}},
+        {{right, top,    0.0f}, {0.0f, 0.0f}}, {{left,  top,    0.0f}, {0.0f, 0.0f}},
+        {{left,  top,    0.0f}, {0.0f, 0.0f}}, {{left,  bottom, 0.0f}, {0.0f, 0.0f}},
+
+        {{left + h_step, bottom, 0.0f}, {0.0f, 0.0f}}, {{left + h_step, top, 0.0f}, {0.0f, 0.0f}},
+        {{left + 2.0f * h_step, bottom, 0.0f}, {0.0f, 0.0f}}, {{left + 2.0f * h_step, top, 0.0f}, {0.0f, 0.0f}},
+
+        {{left, bottom + v_step, 0.0f}, {0.0f, 0.0f}}, {{right, bottom + v_step, 0.0f}, {0.0f, 0.0f}},
+        {{left, bottom + 2.0f * v_step, 0.0f}, {0.0f, 0.0f}}, {{right, bottom + 2.0f * v_step, 0.0f}, {0.0f, 0.0f}}
+    };
+
+    uint32_t count = (uint32_t)(sizeof(inventory_vertices) / sizeof(inventory_vertices[0]));
+    if (count > max_vertices) count = max_vertices;
+    for (uint32_t i = 0; i < count; ++i) out_vertices[i] = inventory_vertices[i];
+    *out_count = count;
+    if (out_h_step) *out_h_step = h_step;
+    if (out_v_step) *out_v_step = v_step;
+}
+
+void player_inventory_icon_vertices(float h_step,
+                                    float v_step,
+                                    Vertex *out_vertices,
+                                    uint32_t max_vertices,
+                                    uint32_t *out_count) {
+    if (!out_vertices || !out_count || max_vertices == 0) return;
+
+    const float icon_half_x = h_step * 0.35f;
+    const float icon_half_y = v_step * 0.35f;
+
+    Vertex icon_vertices[6] = {
+        {{-icon_half_x, -icon_half_y, 0.0f}, {0.0f, 1.0f}},
+        {{ icon_half_x, -icon_half_y, 0.0f}, {1.0f, 1.0f}},
+        {{ icon_half_x,  icon_half_y, 0.0f}, {1.0f, 0.0f}},
+        {{-icon_half_x, -icon_half_y, 0.0f}, {0.0f, 1.0f}},
+        {{ icon_half_x,  icon_half_y, 0.0f}, {1.0f, 0.0f}},
+        {{-icon_half_x,  icon_half_y, 0.0f}, {0.0f, 0.0f}},
+    };
+
+    uint32_t count = (uint32_t)(sizeof(icon_vertices) / sizeof(icon_vertices[0]));
+    if (count > max_vertices) count = max_vertices;
+    for (uint32_t i = 0; i < count; ++i) out_vertices[i] = icon_vertices[i];
+    *out_count = count;
+}
+
+uint32_t player_inventory_icon_instances(const Player *player,
+                                         float aspect,
+                                         InstanceData *out_instances,
+                                         uint32_t max_instances) {
+    if (!player) return 0;
+
+    const float inv_half = 0.6f;
+    const float inv_half_x = inv_half * aspect;
+    const float left = -inv_half_x;
+    const float right = inv_half_x;
+    const float bottom = -inv_half;
+    const float top = inv_half;
+    const float h_step = (right - left) / 3.0f;
+    const float v_step = (top - bottom) / 3.0f;
+
+    uint32_t icon_index = 0;
+    for (int slot = 0; slot < 9; ++slot) {
+        if (player->inventory_counts[slot] == 0) continue;
+        if (out_instances && icon_index < max_instances) {
+            int row = slot / 3;
+            int col = slot % 3;
+            float center_x = left + h_step * 0.5f + (float)col * h_step;
+            float center_y = top - v_step * 0.5f - (float)row * v_step;
+            out_instances[icon_index] = (InstanceData){
+                center_x, center_y, 0.0f, (uint32_t)player->inventory[slot]
+            };
+        }
+        icon_index++;
+    }
+
+    return icon_index;
+}
+
+uint32_t player_inventory_count_vertices(const Player *player,
+                                         float aspect,
+                                         Vertex *out_vertices,
+                                         uint32_t max_vertices) {
+    if (!player || !out_vertices || max_vertices == 0) return 0;
+
+    const float inv_half = 0.6f;
+    const float inv_half_x = inv_half * aspect;
+    const float left = -inv_half_x;
+    const float right = inv_half_x;
+    const float bottom = -inv_half;
+    const float top = inv_half;
+    const float h_step = (right - left) / 3.0f;
+    const float v_step = (top - bottom) / 3.0f;
+
+    uint32_t count_vertices = 0;
+
+    for (int slot = 0; slot < 9; ++slot) {
+        if (player->inventory_counts[slot] == 0) continue;
+
+        int row = slot / 3;
+        int col = slot % 3;
+        float cell_left = left + (float)col * h_step;
+        float cell_top = top - (float)row * v_step;
+
+        float digit_w = h_step * 0.16f;
+        float digit_h = v_step * 0.35f;
+        float gap = digit_w * 0.25f;
+
+        uint8_t count = player->inventory_counts[slot];
+        int d0 = count % 10;
+        int d1 = (count / 10) % 10;
+        int d2 = (count / 100) % 10;
+
+        int digits[3];
+        int digit_count = 0;
+        if (count >= 100) { digits[digit_count++] = d2; }
+        if (count >= 10) { digits[digit_count++] = d1; }
+        digits[digit_count++] = d0;
+
+        float total_w = (float)digit_count * digit_w + (float)(digit_count - 1) * gap;
+        float start_x = cell_left + h_step - total_w - h_step * 0.08f;
+        float start_y = cell_top - v_step + v_step * 0.12f;
+
+        for (int i = 0; i < digit_count; ++i) {
+            append_digit(out_vertices, &count_vertices, max_vertices,
+                         digits[i], start_x + i * (digit_w + gap), start_y, digit_w, digit_h);
+        }
+    }
+
+    return count_vertices;
+}
