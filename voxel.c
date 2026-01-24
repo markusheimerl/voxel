@@ -1,5 +1,6 @@
-#ifndef VULKAN_VOXEL_H
-#define VULKAN_VOXEL_H
+#include "voxel.h"
+#include <stdlib.h>
+#include <string.h>
 
 /* -------------------------------------------------------------------------- */
 /* Vulkan Error Helpers                                                       */
@@ -16,9 +17,12 @@
         }                                                                         \
     } while (0)
 
-static void die(const char *message);
+static void die(const char *message) {
+    fprintf(stderr, "Error: %s\n", message);
+    exit(EXIT_FAILURE);
+}
 
-static const char *vk_result_to_string(VkResult result) {
+const char *vk_result_to_string(VkResult result) {
     switch (result) {
     case VK_SUCCESS:                                 return "VK_SUCCESS";
     case VK_NOT_READY:                               return "VK_NOT_READY";
@@ -67,13 +71,13 @@ static uint32_t find_memory_type(VkPhysicalDevice physical_device,
     return 0;
 }
 
-static void create_buffer(VkDevice device,
-                          VkPhysicalDevice physical_device,
-                          VkDeviceSize size,
-                          VkBufferUsageFlags usage,
-                          VkMemoryPropertyFlags properties,
-                          VkBuffer *buffer,
-                          VkDeviceMemory *memory) {
+void create_buffer(VkDevice device,
+                    VkPhysicalDevice physical_device,
+                    VkDeviceSize size,
+                    VkBufferUsageFlags usage,
+                    VkMemoryPropertyFlags properties,
+                    VkBuffer *buffer,
+                    VkDeviceMemory *memory) {
     VkBufferCreateInfo buffer_info = {0};
     buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     buffer_info.size = size;
@@ -260,21 +264,6 @@ static void copy_buffer_to_image(VkDevice device,
 /* Texture Handling                                                           */
 /* -------------------------------------------------------------------------- */
 
-typedef struct {
-    VkImage image;
-    VkDeviceMemory memory;
-    VkImageView view;
-    VkSampler sampler;
-    uint32_t width;
-    uint32_t height;
-} Texture;
-
-typedef struct {
-    uint8_t *pixels;
-    uint32_t width;
-    uint32_t height;
-} ImageData;
-
 static bool load_png_rgba(const char *filename, ImageData *out_image) {
     FILE *fp = fopen(filename, "rb");
     if (!fp) return false;
@@ -440,7 +429,7 @@ static void texture_create_from_pixels(VkDevice device,
     texture->height = height;
 }
 
-static void texture_create_from_file(VkDevice device,
+void texture_create_from_file(VkDevice device,
                                      VkPhysicalDevice physical_device,
                                      VkCommandPool command_pool,
                                      VkQueue graphics_queue,
@@ -455,7 +444,7 @@ static void texture_create_from_file(VkDevice device,
     free_image(&image);
 }
 
-static void texture_create_solid(VkDevice device,
+void texture_create_solid(VkDevice device,
                                  VkPhysicalDevice physical_device,
                                  VkCommandPool command_pool,
                                  VkQueue graphics_queue,
@@ -466,7 +455,7 @@ static void texture_create_solid(VkDevice device,
                                pixel, 1, 1, texture);
 }
 
-static void texture_destroy(VkDevice device, Texture *texture) {
+void texture_destroy(VkDevice device, Texture *texture) {
     vkDestroySampler(device, texture->sampler, NULL);
     vkDestroyImageView(device, texture->view, NULL);
     vkDestroyImage(device, texture->image, NULL);
@@ -503,7 +492,7 @@ static char *read_binary_file(const char *filepath, size_t *out_size) {
     return buffer;
 }
 
-static VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
+VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
     size_t size = 0;
     char *code = read_binary_file(filepath, &size);
     if (!code) die("Failed to read shader file");
@@ -521,124 +510,16 @@ static VkShaderModule create_shader_module(VkDevice device, const char *filepath
 }
 
 /* -------------------------------------------------------------------------- */
-/* Vertex Formats                                                             */
-/* -------------------------------------------------------------------------- */
-
-typedef struct {
-    Vec3 pos;
-    Vec2 uv;
-} Vertex;
-
-typedef struct {
-    float x, y, z;
-    uint32_t type;
-} InstanceData;
-
-typedef struct {
-    Mat4 view;
-    Mat4 proj;
-} PushConstants;
-
-static const Vertex BLOCK_VERTICES[] = {
-    /* Front */
-    {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}},
-    {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}},
-    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}},
-    {{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
-
-    /* Back */
-    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}},
-    {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}},
-    {{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}},
-    {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}},
-
-    /* Top */
-    {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}},
-    {{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f}},
-    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}},
-    {{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
-
-    /* Bottom */
-    {{-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}},
-    {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f}},
-    {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}},
-    {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}},
-
-    /* Right */
-    {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}},
-    {{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f}},
-    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}},
-    {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f}},
-
-    /* Left */
-    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}},
-    {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}},
-    {{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
-    {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f}},
-};
-
-static const uint16_t BLOCK_INDICES[] = {
-     0,  1,  2,  2,  3,  0, /* Front */
-     6,  5,  4,  4,  7,  6, /* Back */
-     8, 11, 10, 10,  9,  8, /* Top */
-    12, 13, 14, 14, 15, 12, /* Bottom */
-    16, 17, 18, 18, 19, 16, /* Right */
-    22, 21, 20, 20, 23, 22  /* Left */
-};
-
-static const Vertex EDGE_VERTICES[] = {
-    {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}}, /* 0 */
-    {{ 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}}, /* 1 */
-    {{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}}, /* 2 */
-    {{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}}, /* 3 */
-    {{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}}, /* 4 */
-    {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}}, /* 5 */
-    {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}}, /* 6 */
-    {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}}, /* 7 */
-};
-
-static const uint16_t EDGE_INDICES[] = {
-    0, 1,  1, 2,  2, 3,  3, 0, /* Front */
-    4, 5,  5, 6,  6, 7,  7, 4, /* Back */
-    0, 4,  1, 5,  2, 6,  3, 7  /* Connecting edges */
-};
-
-/* -------------------------------------------------------------------------- */
 /* Vulkan Swapchain Resources                                                 */
 /* -------------------------------------------------------------------------- */
 
-typedef struct {
-    VkSwapchainKHR swapchain;
-    VkImage *images;
-    VkImageView *image_views;
-    VkFramebuffer *framebuffers;
-    VkRenderPass render_pass;
-    VkPipeline pipeline_solid;
-    VkPipeline pipeline_wireframe;
-    VkPipeline pipeline_crosshair;
-
-    VkDescriptorPool descriptor_pool;
-    VkDescriptorSet *descriptor_sets_normal;
-    VkDescriptorSet *descriptor_sets_highlight;
-
-    VkCommandBuffer *command_buffers;
-
-    VkImage depth_image;
-    VkDeviceMemory depth_memory;
-    VkImageView depth_view;
-
-    uint32_t image_count;
-    VkExtent2D extent;
-    VkFormat format;
-} SwapchainResources;
-
-static void swapchain_resources_reset(SwapchainResources *res) {
+void swapchain_resources_reset(SwapchainResources *res) {
     *res = (SwapchainResources){0};
 }
 
-static void swapchain_destroy(VkDevice device,
-                              VkCommandPool command_pool,
-                              SwapchainResources *res) {
+void swapchain_destroy(VkDevice device,
+                        VkCommandPool command_pool,
+                        SwapchainResources *res) {
     if (res->command_buffers) {
         vkFreeCommandBuffers(device, command_pool, res->image_count, res->command_buffers);
         free(res->command_buffers);
@@ -750,25 +631,10 @@ static void create_depth_resources(VkDevice device,
 /* Swapchain creation                                                         */
 /* -------------------------------------------------------------------------- */
 
-typedef struct {
-    VkDevice device;
-    VkPhysicalDevice physical_device;
-    VkSurfaceKHR surface;
-    VkQueue graphics_queue;
-    VkCommandPool command_pool;
-    VkDescriptorSetLayout descriptor_set_layout;
-    VkPipelineLayout pipeline_layout;
-    VkShaderModule vert_shader;
-    VkShaderModule frag_shader;
-    const Texture *textures;
-    uint32_t texture_count;
-    const Texture *black_texture;
-} SwapchainContext;
-
-static void swapchain_create(SwapchainContext *ctx,
-                             SwapchainResources *res,
-                             uint32_t framebuffer_width,
-                             uint32_t framebuffer_height) {
+void swapchain_create(SwapchainContext *ctx,
+                        SwapchainResources *res,
+                        uint32_t framebuffer_width,
+                        uint32_t framebuffer_height) {
     VkPhysicalDevice physical_device = ctx->physical_device;
     VkDevice device = ctx->device;
     VkSurfaceKHR surface = ctx->surface;
@@ -1126,5 +992,3 @@ static void swapchain_create(SwapchainContext *ctx,
 
     VK_CHECK(vkAllocateCommandBuffers(device, &command_alloc, res->command_buffers));
 }
-
-#endif /* VULKAN_VOXEL_H */

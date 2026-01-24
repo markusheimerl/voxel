@@ -18,7 +18,7 @@
 #include "math.h"
 #include "camera.h"
 #include "world.h"
-#include "vulkan_voxel.h"
+#include "voxel.h"
 #include "player.h"
 
 #define ARRAY_LENGTH(a) (sizeof(a) / sizeof((a)[0]))
