@@ -381,7 +381,7 @@ static size_t chunk_voxel_count(void) {
 
 static int world_save_find_index(const WorldSave *save, int cx, int cz) {
     for (int i = 0; i < save->count; ++i) {
-        if (save->records[i].cx == cx && save->records[i].cz == cz) return i;
+        if (save->records[i].cx == cx && save->records[i].cz == cz) return save->records[i].cx == cx && save->records[i].cz == cz ? i : -1;
     }
     return -1;
 }
@@ -2928,6 +2928,9 @@ int main(void) {
             (now.tv_nsec - last_time.tv_nsec) / 1000000000.0f;
         last_time = now;
 
+        const float MAX_DELTA_TIME = 0.1f;
+        if (delta_time > MAX_DELTA_TIME) delta_time = MAX_DELTA_TIME;
+
         Vec3 move_delta = vec3(0.0f, 0.0f, 0.0f);
         bool wants_jump = false;
 
@@ -2957,7 +2960,8 @@ int main(void) {
             player.on_ground = false;
         }
 
-        player.velocity_y -= GRAVITY * delta_time;
+        if (!player.on_ground) player.velocity_y -= GRAVITY * delta_time;
+        else player.velocity_y = 0.0f;
 
         player.position.x += move_delta.x;
         resolve_collision_axis(&world, &player.position, move_delta.x, 0);
