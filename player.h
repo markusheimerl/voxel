@@ -12,14 +12,18 @@
 /* Player                                                                     */
 /* -------------------------------------------------------------------------- */
 
+#define INVENTORY_COLS 9
+#define INVENTORY_ROWS 3
+#define INVENTORY_SIZE (INVENTORY_COLS * INVENTORY_ROWS)
+
 typedef struct {
     Vec3 position;    /* feet center */
     float velocity_y;
     bool on_ground;
     bool inventory_open;
     uint8_t selected_slot;
-    uint8_t inventory[9];
-    uint8_t inventory_counts[9];
+    uint8_t inventory[INVENTORY_SIZE];
+    uint8_t inventory_counts[INVENTORY_SIZE];
 } Player;
 
 void player_inventory_add(Player *player, uint8_t type);

@@ -165,7 +165,7 @@ bool block_overlaps_player(const Player *player, IVec3 cell) {
 /* -------------------------------------------------------------------------- */
 
 void player_inventory_add(Player *player, uint8_t type) {
-    for (int i = 0; i < 9; ++i) {
+    for (int i = 0; i < INVENTORY_SIZE; ++i) {
         if (player->inventory_counts[i] > 0 && player->inventory[i] == type) {
             if (player->inventory_counts[i] < UINT8_MAX) {
                 player->inventory_counts[i]++;
@@ -174,7 +174,7 @@ void player_inventory_add(Player *player, uint8_t type) {
         }
     }
 
-    for (int i = 0; i < 9; ++i) {
+    for (int i = 0; i < INVENTORY_SIZE; ++i) {
         if (player->inventory_counts[i] == 0) {
             player->inventory[i] = type;
             player->inventory_counts[i] = 1;
@@ -200,8 +200,8 @@ int player_inventory_slot_from_mouse(float aspect,
     float ndc_x = (mouse_x / window_w) * 2.0f - 1.0f;
     float ndc_y = 1.0f - (mouse_y / window_h) * 2.0f;
 
-    const float inv_half = 0.6f;
-    const float inv_half_x = inv_half * aspect;
+    const float inv_half = 0.2f;
+    const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
     const float left = -inv_half_x;
     const float right = inv_half_x;
     const float bottom = -inv_half;
@@ -209,15 +209,15 @@ int player_inventory_slot_from_mouse(float aspect,
 
     if (ndc_x < left || ndc_x > right || ndc_y < bottom || ndc_y > top) return -1;
 
-    const float h_step = (right - left) / 3.0f;
-    const float v_step = (top - bottom) / 3.0f;
+    const float h_step = (right - left) / (float)INVENTORY_COLS;
+    const float v_step = (top - bottom) / (float)INVENTORY_ROWS;
 
     int col = (int)((ndc_x - left) / h_step);
     int row = (int)((top - ndc_y) / v_step);
 
-    if (col < 0 || col > 2 || row < 0 || row > 2) return -1;
+    if (col < 0 || col >= INVENTORY_COLS || row < 0 || row >= INVENTORY_ROWS) return -1;
 
-    return row * 3 + col;
+    return row * INVENTORY_COLS + col;
 }
 
 void player_inventory_selection_vertices(int slot,
@@ -228,19 +228,19 @@ void player_inventory_selection_vertices(int slot,
     if (!out_vertices || !out_count || max_vertices == 0) return;
     *out_count = 0;
 
-    if (slot < 0 || slot > 8) return;
+    if (slot < 0 || slot >= INVENTORY_SIZE) return;
 
-    const float inv_half = 0.6f;
-    const float inv_half_x = inv_half * aspect;
+    const float inv_half = 0.2f;
+    const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
     const float left = -inv_half_x;
     const float right = inv_half_x;
     const float bottom = -inv_half;
     const float top = inv_half;
-    const float h_step = (right - left) / 3.0f;
-    const float v_step = (top - bottom) / 3.0f;
+    const float h_step = (right - left) / (float)INVENTORY_COLS;
+    const float v_step = (top - bottom) / (float)INVENTORY_ROWS;
 
-    int row = slot / 3;
-    int col = slot % 3;
+    int row = slot / INVENTORY_COLS;
+    int col = slot % INVENTORY_COLS;
 
     float cell_left = left + (float)col * h_step;
     float cell_right = cell_left + h_step;
@@ -301,31 +301,35 @@ void player_inventory_grid_vertices(float aspect,
                                     float *out_v_step) {
     if (!out_vertices || !out_count || max_vertices == 0) return;
 
-    const float inv_half = 0.6f;
-    const float inv_half_x = inv_half * aspect;
+    const float inv_half = 0.2f;
+    const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
     const float left = -inv_half_x;
     const float right = inv_half_x;
     const float bottom = -inv_half;
     const float top = inv_half;
-    const float h_step = (right - left) / 3.0f;
-    const float v_step = (top - bottom) / 3.0f;
+    const float h_step = (right - left) / (float)INVENTORY_COLS;
+    const float v_step = (top - bottom) / (float)INVENTORY_ROWS;
 
-    Vertex inventory_vertices[16] = {
-        {{left,  bottom, 0.0f}, {0.0f, 0.0f}}, {{right, bottom, 0.0f}, {0.0f, 0.0f}},
-        {{right, bottom, 0.0f}, {0.0f, 0.0f}}, {{right, top,    0.0f}, {0.0f, 0.0f}},
-        {{right, top,    0.0f}, {0.0f, 0.0f}}, {{left,  top,    0.0f}, {0.0f, 0.0f}},
-        {{left,  top,    0.0f}, {0.0f, 0.0f}}, {{left,  bottom, 0.0f}, {0.0f, 0.0f}},
+    uint32_t count = 0;
 
-        {{left + h_step, bottom, 0.0f}, {0.0f, 0.0f}}, {{left + h_step, top, 0.0f}, {0.0f, 0.0f}},
-        {{left + 2.0f * h_step, bottom, 0.0f}, {0.0f, 0.0f}}, {{left + 2.0f * h_step, top, 0.0f}, {0.0f, 0.0f}},
+    /* Border */
+    append_line(out_vertices, &count, max_vertices, left, bottom, right, bottom);
+    append_line(out_vertices, &count, max_vertices, right, bottom, right, top);
+    append_line(out_vertices, &count, max_vertices, right, top, left, top);
+    append_line(out_vertices, &count, max_vertices, left, top, left, bottom);
 
-        {{left, bottom + v_step, 0.0f}, {0.0f, 0.0f}}, {{right, bottom + v_step, 0.0f}, {0.0f, 0.0f}},
-        {{left, bottom + 2.0f * v_step, 0.0f}, {0.0f, 0.0f}}, {{right, bottom + 2.0f * v_step, 0.0f}, {0.0f, 0.0f}}
-    };
+    /* Vertical grid lines */
+    for (int col = 1; col < INVENTORY_COLS; ++col) {
+        float x = left + (float)col * h_step;
+        append_line(out_vertices, &count, max_vertices, x, bottom, x, top);
+    }
 
-    uint32_t count = (uint32_t)(sizeof(inventory_vertices) / sizeof(inventory_vertices[0]));
-    if (count > max_vertices) count = max_vertices;
-    for (uint32_t i = 0; i < count; ++i) out_vertices[i] = inventory_vertices[i];
+    /* Horizontal grid lines */
+    for (int row = 1; row < INVENTORY_ROWS; ++row) {
+        float y = bottom + (float)row * v_step;
+        append_line(out_vertices, &count, max_vertices, left, y, right, y);
+    }
+
     *out_count = count;
     if (out_h_step) *out_h_step = h_step;
     if (out_v_step) *out_v_step = v_step;
@@ -362,21 +366,21 @@ uint32_t player_inventory_icon_instances(const Player *player,
                                          uint32_t max_instances) {
     if (!player) return 0;
 
-    const float inv_half = 0.6f;
-    const float inv_half_x = inv_half * aspect;
+    const float inv_half = 0.2f;
+    const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
     const float left = -inv_half_x;
     const float right = inv_half_x;
     const float bottom = -inv_half;
     const float top = inv_half;
-    const float h_step = (right - left) / 3.0f;
-    const float v_step = (top - bottom) / 3.0f;
+    const float h_step = (right - left) / (float)INVENTORY_COLS;
+    const float v_step = (top - bottom) / (float)INVENTORY_ROWS;
 
     uint32_t icon_index = 0;
-    for (int slot = 0; slot < 9; ++slot) {
+    for (int slot = 0; slot < INVENTORY_SIZE; ++slot) {
         if (player->inventory_counts[slot] == 0) continue;
         if (out_instances && icon_index < max_instances) {
-            int row = slot / 3;
-            int col = slot % 3;
+            int row = slot / INVENTORY_COLS;
+            int col = slot % INVENTORY_COLS;
             float center_x = left + h_step * 0.5f + (float)col * h_step;
             float center_y = top - v_step * 0.5f - (float)row * v_step;
             out_instances[icon_index] = (InstanceData){
@@ -395,22 +399,22 @@ uint32_t player_inventory_count_vertices(const Player *player,
                                          uint32_t max_vertices) {
     if (!player || !out_vertices || max_vertices == 0) return 0;
 
-    const float inv_half = 0.6f;
-    const float inv_half_x = inv_half * aspect;
+    const float inv_half = 0.2f;
+    const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
     const float left = -inv_half_x;
     const float right = inv_half_x;
     const float bottom = -inv_half;
     const float top = inv_half;
-    const float h_step = (right - left) / 3.0f;
-    const float v_step = (top - bottom) / 3.0f;
+    const float h_step = (right - left) / (float)INVENTORY_COLS;
+    const float v_step = (top - bottom) / (float)INVENTORY_ROWS;
 
     uint32_t count_vertices = 0;
 
-    for (int slot = 0; slot < 9; ++slot) {
+    for (int slot = 0; slot < INVENTORY_SIZE; ++slot) {
         if (player->inventory_counts[slot] == 0) continue;
 
-        int row = slot / 3;
-        int col = slot % 3;
+        int row = slot / INVENTORY_COLS;
+        int col = slot % INVENTORY_COLS;
         float cell_left = left + (float)col * h_step;
         float cell_top = top - (float)row * v_step;
 

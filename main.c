@@ -296,7 +296,7 @@ int main(void) {
                   &inventory_icon_vertex_buffer, &inventory_icon_vertex_memory);
 
     /* Inventory count digits (clip space, updated per frame) */
-    const uint32_t INVENTORY_COUNT_MAX_VERTICES = 600;
+    const uint32_t INVENTORY_COUNT_MAX_VERTICES = 1500;
     VkBuffer inventory_count_vertex_buffer;
     VkDeviceMemory inventory_count_vertex_memory;
     uint32_t inventory_count_vertex_count = 0;
@@ -503,10 +503,10 @@ int main(void) {
             memcpy(ch, crosshair_vertices, sizeof(crosshair_vertices));
             vkUnmapMemory(device, crosshair_vertex_memory);
 
-            /* Inventory grid (3x3) in clip space, keep square on screen */
+            /* Inventory grid (3x9) in clip space, keep square on screen */
             float inv_h_step = 0.0f;
             float inv_v_step = 0.0f;
-            Vertex inventory_vertices[16];
+            Vertex inventory_vertices[INVENTORY_MAX_VERTICES];
             player_inventory_grid_vertices(aspect_correction,
                                             inventory_vertices,
                                             (uint32_t)ARRAY_LENGTH(inventory_vertices),
@@ -593,6 +593,10 @@ int main(void) {
                 else if (!player.inventory_open && sym == XK_3) player.selected_slot = 2;
                 else if (!player.inventory_open && sym == XK_4) player.selected_slot = 3;
                 else if (!player.inventory_open && sym == XK_5) player.selected_slot = 4;
+                else if (!player.inventory_open && sym == XK_6) player.selected_slot = 5;
+                else if (!player.inventory_open && sym == XK_7) player.selected_slot = 6;
+                else if (!player.inventory_open && sym == XK_8) player.selected_slot = 7;
+                else if (!player.inventory_open && sym == XK_9) player.selected_slot = 8;
 
                 if (sym < 256) keys[sym] = true;
             } break;
@@ -854,8 +858,8 @@ int main(void) {
             float aspect = (float)swapchain.extent.height / (float)swapchain.extent.width;
 
             Vertex bg_vertices[INVENTORY_BG_VERTEX_COUNT];
-            const float inv_half = 0.6f;
-            const float inv_half_x = inv_half * aspect;
+            const float inv_half = 0.2f;
+            const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
             const float left = -inv_half_x;
             const float right = inv_half_x;
             const float bottom = -inv_half;
