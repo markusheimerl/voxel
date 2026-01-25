@@ -543,6 +543,10 @@ void swapchain_destroy(VkDevice device,
         vkDestroyPipeline(device, res->pipeline_crosshair, NULL);
         res->pipeline_crosshair = VK_NULL_HANDLE;
     }
+    if (res->pipeline_overlay != VK_NULL_HANDLE) {
+        vkDestroyPipeline(device, res->pipeline_overlay, NULL);
+        res->pipeline_overlay = VK_NULL_HANDLE;
+    }
     if (res->pipeline_wireframe != VK_NULL_HANDLE) {
         vkDestroyPipeline(device, res->pipeline_wireframe, NULL);
         res->pipeline_wireframe = VK_NULL_HANDLE;
@@ -903,6 +907,11 @@ void swapchain_create(SwapchainContext *ctx,
     pipeline_info.pRasterizationState = &raster_cross;
     pipeline_info.pDepthStencilState = &depth_cross;
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &res->pipeline_crosshair));
+
+    pipeline_info.pInputAssemblyState = &input_assembly_tri;
+    pipeline_info.pRasterizationState = &raster_wire;
+    pipeline_info.pDepthStencilState = &depth_cross;
+    VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &res->pipeline_overlay));
 
     res->framebuffers = malloc(sizeof(VkFramebuffer) * image_count);
     for (uint32_t i = 0; i < image_count; ++i) {

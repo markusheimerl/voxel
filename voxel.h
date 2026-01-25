@@ -177,6 +177,7 @@ typedef struct {
     VkPipeline pipeline_solid;
     VkPipeline pipeline_wireframe;
     VkPipeline pipeline_crosshair;
+    VkPipeline pipeline_overlay;
 
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet *descriptor_sets_normal;

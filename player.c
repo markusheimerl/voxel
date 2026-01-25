@@ -247,7 +247,7 @@ void player_inventory_selection_vertices(int slot,
     float cell_top = top - (float)row * v_step;
     float cell_bottom = cell_top - v_step;
 
-    float pad = fminf(h_step, v_step) * 0.08f;
+    float pad = fminf(h_step, v_step) * 0.04f;
     cell_left += pad;
     cell_right -= pad;
     cell_top -= pad;

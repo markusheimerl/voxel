@@ -315,6 +315,16 @@ int main(void) {
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &inventory_selection_vertex_buffer, &inventory_selection_vertex_memory);
 
+    /* Inventory background (clip space, updated per frame) */
+    const uint32_t INVENTORY_BG_VERTEX_COUNT = 6;
+    VkBuffer inventory_bg_vertex_buffer;
+    VkDeviceMemory inventory_bg_vertex_memory;
+    uint32_t inventory_bg_vertex_count = 0;
+    create_buffer(device, physical_device, sizeof(Vertex) * INVENTORY_BG_VERTEX_COUNT,
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &inventory_bg_vertex_buffer, &inventory_bg_vertex_memory);
+
     /* Instance buffer (blocks + highlight + crosshair) */
     VkBuffer instance_buffer = VK_NULL_HANDLE;
     VkDeviceMemory instance_memory = VK_NULL_HANDLE;
@@ -780,8 +790,10 @@ int main(void) {
         uint32_t highlight_instance_index = (uint32_t)render_blocks;
         uint32_t crosshair_instance_index = (uint32_t)render_blocks + 1;
         uint32_t inventory_instance_index = (uint32_t)render_blocks + 2;
-        uint32_t inventory_icons_start = (uint32_t)render_blocks + 3;
-        uint32_t total_instances = (uint32_t)render_blocks + 3 + inventory_icon_count;
+        uint32_t inventory_selection_instance_index = (uint32_t)render_blocks + 3;
+        uint32_t inventory_bg_instance_index = (uint32_t)render_blocks + 4;
+        uint32_t inventory_icons_start = (uint32_t)render_blocks + 5;
+        uint32_t total_instances = (uint32_t)render_blocks + 5 + inventory_icon_count;
 
         if (total_instances > instance_capacity) {
             uint32_t new_cap = instance_capacity;
@@ -822,8 +834,10 @@ int main(void) {
         } else {
             instances[highlight_instance_index] = (InstanceData){0,0,0,(uint32_t)HIGHLIGHT_TEXTURE_INDEX};
         }
-        instances[crosshair_instance_index] = (InstanceData){0,0,0,(uint32_t)HIGHLIGHT_TEXTURE_INDEX};
+        instances[crosshair_instance_index] = (InstanceData){0,0,0,(uint32_t)CROSSHAIR_TEXTURE_INDEX};
         instances[inventory_instance_index] = (InstanceData){0,0,0,(uint32_t)HIGHLIGHT_TEXTURE_INDEX};
+        instances[inventory_selection_instance_index] = (InstanceData){0,0,0,(uint32_t)INVENTORY_SELECTION_TEXTURE_INDEX};
+        instances[inventory_bg_instance_index] = (InstanceData){0,0,0,(uint32_t)INVENTORY_BG_TEXTURE_INDEX};
 
         if (inventory_icon_count > 0) {
             float aspect = (float)swapchain.extent.height / (float)swapchain.extent.width;
@@ -834,9 +848,32 @@ int main(void) {
         }
 
         inventory_selection_vertex_count = 0;
+        inventory_bg_vertex_count = 0;
         inventory_count_vertex_count = 0;
         if (player.inventory_open) {
             float aspect = (float)swapchain.extent.height / (float)swapchain.extent.width;
+
+            Vertex bg_vertices[INVENTORY_BG_VERTEX_COUNT];
+            const float inv_half = 0.6f;
+            const float inv_half_x = inv_half * aspect;
+            const float left = -inv_half_x;
+            const float right = inv_half_x;
+            const float bottom = -inv_half;
+            const float top = inv_half;
+
+            bg_vertices[0] = (Vertex){{left,  top,    0.0f}, {0.0f, 0.0f}};
+            bg_vertices[1] = (Vertex){{right, top,    0.0f}, {1.0f, 0.0f}};
+            bg_vertices[2] = (Vertex){{right, bottom, 0.0f}, {1.0f, 1.0f}};
+            bg_vertices[3] = (Vertex){{left,  top,    0.0f}, {0.0f, 0.0f}};
+            bg_vertices[4] = (Vertex){{right, bottom, 0.0f}, {1.0f, 1.0f}};
+            bg_vertices[5] = (Vertex){{left,  bottom, 0.0f}, {0.0f, 1.0f}};
+
+            inventory_bg_vertex_count = INVENTORY_BG_VERTEX_COUNT;
+            void *bg = NULL;
+            VK_CHECK(vkMapMemory(device, inventory_bg_vertex_memory, 0,
+                                 inventory_bg_vertex_count * sizeof(Vertex), 0, &bg));
+            memcpy(bg, bg_vertices, inventory_bg_vertex_count * sizeof(Vertex));
+            vkUnmapMemory(device, inventory_bg_vertex_memory);
 
             Vertex selection_vertices[INVENTORY_SELECTION_VERTEX_COUNT];
             player_inventory_selection_vertices((int)player.selected_slot,
@@ -983,6 +1020,26 @@ int main(void) {
 
         /* Inventory grid (lines, clip-space geometry, identity matrices) */
         if (player.inventory_open && inventory_vertex_count > 0) {
+            if (inventory_bg_vertex_count > 0) {
+                vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_overlay);
+                vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
+
+                vbs[0] = inventory_bg_vertex_buffer;
+                vbs[1] = instance_buffer;
+                vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 2, vbs, offsets);
+
+                vkCmdBindDescriptorSets(swapchain.command_buffers[image_index],
+                                        VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                        pipeline_layout,
+                                        0,
+                                        1,
+                                        &swapchain.descriptor_sets_highlight[image_index],
+                                        0,
+                                        NULL);
+
+                vkCmdDraw(swapchain.command_buffers[image_index], inventory_bg_vertex_count, 1, 0, inventory_bg_instance_index);
+            }
+
             vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_crosshair);
             vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
 
@@ -1020,7 +1077,7 @@ int main(void) {
                                     0,
                                     NULL);
 
-            vkCmdDraw(swapchain.command_buffers[image_index], inventory_selection_vertex_count, 1, 0, inventory_instance_index);
+            vkCmdDraw(swapchain.command_buffers[image_index], inventory_selection_vertex_count, 1, 0, inventory_selection_instance_index);
         }
 
         if (player.inventory_open && inventory_icon_count > 0) {
@@ -1129,6 +1186,9 @@ int main(void) {
 
     vkDestroyBuffer(device, inventory_selection_vertex_buffer, NULL);
     vkFreeMemory(device, inventory_selection_vertex_memory, NULL);
+
+    vkDestroyBuffer(device, inventory_bg_vertex_buffer, NULL);
+    vkFreeMemory(device, inventory_bg_vertex_memory, NULL);
 
     vkDestroyBuffer(device, edge_vertex_buffer, NULL);
     vkFreeMemory(device, edge_vertex_memory, NULL);
