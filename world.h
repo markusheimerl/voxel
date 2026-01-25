@@ -17,6 +17,8 @@ typedef enum {
     BLOCK_GRASS = 2,
     BLOCK_SAND  = 3,
     BLOCK_WATER = 4,
+    BLOCK_WOOD  = 5,
+    BLOCK_LEAVES = 6,
     BLOCK_TYPE_COUNT
 } BlockType;
 

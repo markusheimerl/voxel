@@ -208,7 +208,9 @@ int main(void) {
         "textures/stone.png",
         "textures/grass.png",
         "textures/sand.png",
-        "textures/water.png"
+        "textures/water.png",
+        "textures/wood.png",
+        "textures/leaves.png"
     };
 
     for (uint32_t i = 0; i < BLOCK_TYPE_COUNT; ++i) {

@@ -786,6 +786,36 @@ static void chunk_generate(World *world, Chunk *chunk) {
                 }
             }
 
+            bool can_tree = (!forced_plains && !is_river && !fill_with_water && surface == BLOCK_GRASS);
+            if (can_tree) {
+                if (abs(world_x) > 3 || abs(world_z) > 3) {
+                    if (lx >= 2 && lx <= CHUNK_SIZE - 3 && lz >= 2 && lz <= CHUNK_SIZE - 3) {
+                        uint32_t tree_hash = hash_2d(world_x, world_z, 424242u);
+                        if ((tree_hash % 100u) < 3u) {
+                            int trunk_height = 4 + (int)((tree_hash >> 8) % 3u);
+                            int top_y = ground_y + trunk_height;
+                            if (top_y + 2 <= WORLD_MAX_Y) {
+                                for (int ty = 1; ty <= trunk_height; ++ty) {
+                                    chunk_add_block(chunk, (IVec3){world_x, ground_y + ty, world_z}, BLOCK_WOOD);
+                                }
+
+                                for (int y = top_y - 2; y <= top_y + 1; ++y) {
+                                    int dy = y - top_y;
+                                    for (int dx = -2; dx <= 2; ++dx) {
+                                        for (int dz = -2; dz <= 2; ++dz) {
+                                            int dist2 = dx * dx + dz * dz + dy * dy;
+                                            if (dist2 > 6) continue;
+                                            if (dx == 0 && dz == 0 && y <= top_y) continue;
+                                            chunk_add_block(chunk, (IVec3){world_x + dx, y, world_z + dz}, BLOCK_LEAVES);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             if (!world->spawn_set && world_x == 0 && world_z == 0) {
                 world->spawn_position = vec3(0.0f, (float)ground_y + 0.5f, 0.0f);
                 world->spawn_set = true;
