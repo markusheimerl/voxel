@@ -17,6 +17,7 @@ typedef struct {
     float velocity_y;
     bool on_ground;
     bool inventory_open;
+    uint8_t selected_slot;
     uint8_t inventory[9];
     uint8_t inventory_counts[9];
 } Player;
@@ -62,6 +63,18 @@ void player_inventory_icon_vertices(float h_step,
                                     Vertex *out_vertices,
                                     uint32_t max_vertices,
                                     uint32_t *out_count);
+
+int player_inventory_slot_from_mouse(float aspect,
+                                     float mouse_x,
+                                     float mouse_y,
+                                     float window_w,
+                                     float window_h);
+
+void player_inventory_selection_vertices(int slot,
+                                         float aspect,
+                                         Vertex *out_vertices,
+                                         uint32_t max_vertices,
+                                         uint32_t *out_count);
 
 uint32_t player_inventory_icon_instances(const Player *player,
                                          float aspect,

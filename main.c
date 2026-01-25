@@ -305,6 +305,16 @@ int main(void) {
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &inventory_count_vertex_buffer, &inventory_count_vertex_memory);
 
+    /* Inventory selection outline (clip space, updated per frame) */
+    const uint32_t INVENTORY_SELECTION_VERTEX_COUNT = 8;
+    VkBuffer inventory_selection_vertex_buffer;
+    VkDeviceMemory inventory_selection_vertex_memory;
+    uint32_t inventory_selection_vertex_count = 0;
+    create_buffer(device, physical_device, sizeof(Vertex) * INVENTORY_SELECTION_VERTEX_COUNT,
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &inventory_selection_vertex_buffer, &inventory_selection_vertex_memory);
+
     /* Instance buffer (blocks + highlight + crosshair) */
     VkBuffer instance_buffer = VK_NULL_HANDLE;
     VkDeviceMemory instance_memory = VK_NULL_HANDLE;
@@ -422,6 +432,7 @@ int main(void) {
     Player player = {0};
     player.position = world.spawn_position;
     player.inventory_open = false;
+    player.selected_slot = 0;
 
     Camera camera;
     camera_init(&camera);
@@ -435,7 +446,7 @@ int main(void) {
     bool first_mouse = true;
     float last_mouse_x = 0.0f;
     float last_mouse_y = 0.0f;
-    uint8_t current_block_type = BLOCK_DIRT;
+
 
     struct timespec last_time;
     clock_gettime(CLOCK_MONOTONIC, &last_time);
@@ -567,11 +578,11 @@ int main(void) {
                         }
                         XStoreName(display, window, window_title_game);
                     }
-                } else if (!player.inventory_open && sym == XK_1) current_block_type = BLOCK_DIRT;
-                else if (!player.inventory_open && sym == XK_2) current_block_type = BLOCK_STONE;
-                else if (!player.inventory_open && sym == XK_3) current_block_type = BLOCK_GRASS;
-                else if (!player.inventory_open && sym == XK_4) current_block_type = BLOCK_SAND;
-                else if (!player.inventory_open && sym == XK_5) current_block_type = BLOCK_WATER;
+                } else if (!player.inventory_open && sym == XK_1) player.selected_slot = 0;
+                else if (!player.inventory_open && sym == XK_2) player.selected_slot = 1;
+                else if (!player.inventory_open && sym == XK_3) player.selected_slot = 2;
+                else if (!player.inventory_open && sym == XK_4) player.selected_slot = 3;
+                else if (!player.inventory_open && sym == XK_5) player.selected_slot = 4;
 
                 if (sym < 256) keys[sym] = true;
             } break;
@@ -590,7 +601,18 @@ int main(void) {
                 break;
 
             case ButtonPress:
-                if (player.inventory_open) break;
+                if (player.inventory_open) {
+                    if (event.xbutton.button == Button1) {
+                        float aspect = (float)window_height / (float)window_width;
+                        int slot = player_inventory_slot_from_mouse(aspect,
+                                                                     (float)event.xbutton.x,
+                                                                     (float)event.xbutton.y,
+                                                                     (float)window_width,
+                                                                     (float)window_height);
+                        if (slot >= 0) player.selected_slot = (uint8_t)slot;
+                    }
+                    break;
+                }
                 if (event.xbutton.button == Button1) {
                     if (!mouse_captured) {
                         XGrabPointer(display, window, True, PointerMotionMask,
@@ -700,7 +722,17 @@ int main(void) {
                     if (!(ray_hit.normal.x == 0 && ray_hit.normal.y == 0 && ray_hit.normal.z == 0)) {
                         IVec3 place = ivec3_add(ray_hit.cell, ray_hit.normal);
                         if (!world_block_exists(&world, place) && !block_overlaps_player(&player, place)) {
-                            world_add_block(&world, place, current_block_type);
+                            uint8_t slot = player.selected_slot;
+                            if (slot < 9 && player.inventory_counts[slot] > 0) {
+                                uint8_t place_type = player.inventory[slot];
+                                world_add_block(&world, place, place_type);
+                                if (player.inventory_counts[slot] > 0) {
+                                    player.inventory_counts[slot]--;
+                                    if (player.inventory_counts[slot] == 0) {
+                                        player.inventory[slot] = 0;
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -801,9 +833,25 @@ int main(void) {
                                             inventory_icon_count);
         }
 
+        inventory_selection_vertex_count = 0;
         inventory_count_vertex_count = 0;
         if (player.inventory_open) {
             float aspect = (float)swapchain.extent.height / (float)swapchain.extent.width;
+
+            Vertex selection_vertices[INVENTORY_SELECTION_VERTEX_COUNT];
+            player_inventory_selection_vertices((int)player.selected_slot,
+                                                 aspect,
+                                                 selection_vertices,
+                                                 INVENTORY_SELECTION_VERTEX_COUNT,
+                                                 &inventory_selection_vertex_count);
+            if (inventory_selection_vertex_count > 0) {
+                void *sel = NULL;
+                VK_CHECK(vkMapMemory(device, inventory_selection_vertex_memory, 0,
+                                     inventory_selection_vertex_count * sizeof(Vertex), 0, &sel));
+                memcpy(sel, selection_vertices, inventory_selection_vertex_count * sizeof(Vertex));
+                vkUnmapMemory(device, inventory_selection_vertex_memory);
+            }
+
             Vertex count_vertices[INVENTORY_COUNT_MAX_VERTICES];
             inventory_count_vertex_count =
                 player_inventory_count_vertices(&player, aspect,
@@ -954,6 +1002,27 @@ int main(void) {
             vkCmdDraw(swapchain.command_buffers[image_index], inventory_vertex_count, 1, 0, inventory_instance_index);
         }
 
+        /* Inventory selection outline */
+        if (player.inventory_open && inventory_selection_vertex_count > 0) {
+            vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_crosshair);
+            vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
+
+            vbs[0] = inventory_selection_vertex_buffer;
+            vbs[1] = instance_buffer;
+            vkCmdBindVertexBuffers(swapchain.command_buffers[image_index], 0, 2, vbs, offsets);
+
+            vkCmdBindDescriptorSets(swapchain.command_buffers[image_index],
+                                    VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    pipeline_layout,
+                                    0,
+                                    1,
+                                    &swapchain.descriptor_sets_highlight[image_index],
+                                    0,
+                                    NULL);
+
+            vkCmdDraw(swapchain.command_buffers[image_index], inventory_selection_vertex_count, 1, 0, inventory_instance_index);
+        }
+
         if (player.inventory_open && inventory_icon_count > 0) {
             vkCmdBindPipeline(swapchain.command_buffers[image_index], VK_PIPELINE_BIND_POINT_GRAPHICS, swapchain.pipeline_solid);
             vkCmdPushConstants(swapchain.command_buffers[image_index], pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
@@ -1057,6 +1126,9 @@ int main(void) {
 
     vkDestroyBuffer(device, inventory_count_vertex_buffer, NULL);
     vkFreeMemory(device, inventory_count_vertex_memory, NULL);
+
+    vkDestroyBuffer(device, inventory_selection_vertex_buffer, NULL);
+    vkFreeMemory(device, inventory_selection_vertex_memory, NULL);
 
     vkDestroyBuffer(device, edge_vertex_buffer, NULL);
     vkFreeMemory(device, edge_vertex_memory, NULL);

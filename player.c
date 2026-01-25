@@ -190,6 +190,75 @@ static void append_line(Vertex *verts, uint32_t *count, uint32_t max,
     verts[(*count)++] = (Vertex){{x1, y1, 0.0f}, {0.0f, 0.0f}};
 }
 
+int player_inventory_slot_from_mouse(float aspect,
+                                     float mouse_x,
+                                     float mouse_y,
+                                     float window_w,
+                                     float window_h) {
+    if (window_w <= 0.0f || window_h <= 0.0f) return -1;
+
+    float ndc_x = (mouse_x / window_w) * 2.0f - 1.0f;
+    float ndc_y = 1.0f - (mouse_y / window_h) * 2.0f;
+
+    const float inv_half = 0.6f;
+    const float inv_half_x = inv_half * aspect;
+    const float left = -inv_half_x;
+    const float right = inv_half_x;
+    const float bottom = -inv_half;
+    const float top = inv_half;
+
+    if (ndc_x < left || ndc_x > right || ndc_y < bottom || ndc_y > top) return -1;
+
+    const float h_step = (right - left) / 3.0f;
+    const float v_step = (top - bottom) / 3.0f;
+
+    int col = (int)((ndc_x - left) / h_step);
+    int row = (int)((top - ndc_y) / v_step);
+
+    if (col < 0 || col > 2 || row < 0 || row > 2) return -1;
+
+    return row * 3 + col;
+}
+
+void player_inventory_selection_vertices(int slot,
+                                         float aspect,
+                                         Vertex *out_vertices,
+                                         uint32_t max_vertices,
+                                         uint32_t *out_count) {
+    if (!out_vertices || !out_count || max_vertices == 0) return;
+    *out_count = 0;
+
+    if (slot < 0 || slot > 8) return;
+
+    const float inv_half = 0.6f;
+    const float inv_half_x = inv_half * aspect;
+    const float left = -inv_half_x;
+    const float right = inv_half_x;
+    const float bottom = -inv_half;
+    const float top = inv_half;
+    const float h_step = (right - left) / 3.0f;
+    const float v_step = (top - bottom) / 3.0f;
+
+    int row = slot / 3;
+    int col = slot % 3;
+
+    float cell_left = left + (float)col * h_step;
+    float cell_right = cell_left + h_step;
+    float cell_top = top - (float)row * v_step;
+    float cell_bottom = cell_top - v_step;
+
+    float pad = fminf(h_step, v_step) * 0.08f;
+    cell_left += pad;
+    cell_right -= pad;
+    cell_top -= pad;
+    cell_bottom += pad;
+
+    append_line(out_vertices, out_count, max_vertices, cell_left, cell_top, cell_right, cell_top);
+    append_line(out_vertices, out_count, max_vertices, cell_right, cell_top, cell_right, cell_bottom);
+    append_line(out_vertices, out_count, max_vertices, cell_right, cell_bottom, cell_left, cell_bottom);
+    append_line(out_vertices, out_count, max_vertices, cell_left, cell_bottom, cell_left, cell_top);
+}
+
 static void append_digit(Vertex *verts, uint32_t *count, uint32_t max,
                          int digit, float x, float y, float w, float h) {
     if (digit < 0 || digit > 9) return;
