@@ -392,127 +392,9 @@ static void transition_image_layout(VkDevice device,
     end_single_use_commands(device, command_pool, graphics_queue, command_buffer);
 }
 
-static void copy_buffer_to_image(VkDevice device,
-                                 VkCommandPool command_pool,
-                                 VkQueue graphics_queue,
-                                 VkBuffer buffer,
-                                 VkImage image,
-                                 uint32_t width,
-                                 uint32_t height) {
-    VkCommandBuffer command_buffer = begin_single_use_commands(device, command_pool);
-
-    VkBufferImageCopy region = {.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                                .imageExtent = {width, height, 1}};
-
-    vkCmdCopyBufferToImage(command_buffer,
-                           buffer,
-                           image,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                           1,
-                           &region);
-
-    end_single_use_commands(device, command_pool, graphics_queue, command_buffer);
-}
-
 /* -------------------------------------------------------------------------- */
 /* Texture Handling                                                           */
 /* -------------------------------------------------------------------------- */
-
-static bool load_png_rgba(const char *filename, ImageData *out_image) {
-    FILE *fp = fopen(filename, "rb");
-    if (!fp) return false;
-
-    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    if (!png) { fclose(fp); return false; }
-
-    png_infop info = png_create_info_struct(png);
-    if (!info) { png_destroy_read_struct(&png, NULL, NULL); fclose(fp); return false; }
-
-    if (setjmp(png_jmpbuf(png))) {
-        png_destroy_read_struct(&png, &info, NULL);
-        fclose(fp);
-        return false;
-    }
-
-    png_init_io(png, fp);
-    png_read_info(png, info);
-
-    png_uint_32 width = png_get_image_width(png, info);
-    png_uint_32 height = png_get_image_height(png, info);
-    png_byte bit_depth = png_get_bit_depth(png, info);
-    png_byte color_type = png_get_color_type(png, info);
-
-    if (bit_depth == 16) png_set_strip_16(png);
-    if (color_type == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png);
-    if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) png_set_expand_gray_1_2_4_to_8(png);
-    if (png_get_valid(png, info, PNG_INFO_tRNS)) png_set_tRNS_to_alpha(png);
-    if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA) png_set_gray_to_rgb(png);
-    if (color_type == PNG_COLOR_TYPE_RGB ||
-        color_type == PNG_COLOR_TYPE_GRAY ||
-        color_type == PNG_COLOR_TYPE_PALETTE)
-    {
-        png_set_filler(png, 0xFF, PNG_FILLER_AFTER);
-    }
-
-    png_read_update_info(png, info);
-
-    size_t row_bytes = png_get_rowbytes(png, info);
-    uint8_t *pixels = malloc(row_bytes * height);
-    if (!pixels) {
-        png_destroy_read_struct(&png, &info, NULL);
-        fclose(fp);
-        return false;
-    }
-
-    png_bytep *row_pointers = malloc(sizeof(png_bytep) * height);
-    if (!row_pointers) {
-        free(pixels);
-        png_destroy_read_struct(&png, &info, NULL);
-        fclose(fp);
-        return false;
-    }
-
-    for (png_uint_32 y = 0; y < height; ++y) {
-        row_pointers[y] = pixels + y * row_bytes;
-    }
-
-    png_read_image(png, row_pointers);
-    png_read_end(png, NULL);
-
-    free(row_pointers);
-    png_destroy_read_struct(&png, &info, NULL);
-    fclose(fp);
-
-    out_image->pixels = pixels;
-    out_image->width = (uint32_t)width;
-    out_image->height = (uint32_t)height;
-    return true;
-}
-
-static void free_image(ImageData *image) {
-    free(image->pixels);
-    *image = (ImageData){0};
-}
-
-static VkSampler create_nearest_sampler(VkDevice device) {
-    VkSamplerCreateInfo sampler_info = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-                                        .magFilter = VK_FILTER_NEAREST,
-                                        .minFilter = VK_FILTER_NEAREST,
-                                        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                                        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                                        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                                        .anisotropyEnable = VK_FALSE,
-                                        .maxAnisotropy = 1.0f,
-                                        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-                                        .unnormalizedCoordinates = VK_FALSE,
-                                        .compareEnable = VK_FALSE,
-                                        .compareOp = VK_COMPARE_OP_ALWAYS,
-                                        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST};
-
-    VkSampler sampler;
-    VK_CHECK(vkCreateSampler(device, &sampler_info, NULL, &sampler));
-    return sampler;
-}
 
 static void texture_create_from_pixels(VkDevice device,
                                        VkPhysicalDevice physical_device,
@@ -555,8 +437,16 @@ static void texture_create_from_pixels(VkDevice device,
                             VK_IMAGE_LAYOUT_UNDEFINED,
                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    copy_buffer_to_image(device, command_pool, graphics_queue,
-                         staging_buffer, texture->image, width, height);
+    VkCommandBuffer copy_cmd = begin_single_use_commands(device, command_pool);
+    VkBufferImageCopy region = {.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                                .imageExtent = {width, height, 1}};
+    vkCmdCopyBufferToImage(copy_cmd,
+                           staging_buffer,
+                           texture->image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1,
+                           &region);
+    end_single_use_commands(device, command_pool, graphics_queue, copy_cmd);
 
     transition_image_layout(device, command_pool, graphics_queue,
                             texture->image, VK_FORMAT_R8G8B8A8_SRGB,
@@ -569,7 +459,22 @@ static void texture_create_from_pixels(VkDevice device,
     create_image_view(device, texture->image, VK_FORMAT_R8G8B8A8_SRGB,
                       VK_IMAGE_ASPECT_COLOR_BIT, &texture->view);
 
-    texture->sampler = create_nearest_sampler(device);
+    VkSamplerCreateInfo sampler_info = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                        .magFilter = VK_FILTER_NEAREST,
+                                        .minFilter = VK_FILTER_NEAREST,
+                                        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                        .anisotropyEnable = VK_FALSE,
+                                        .maxAnisotropy = 1.0f,
+                                        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+                                        .unnormalizedCoordinates = VK_FALSE,
+                                        .compareEnable = VK_FALSE,
+                                        .compareOp = VK_COMPARE_OP_ALWAYS,
+                                        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST};
+
+    VK_CHECK(vkCreateSampler(device, &sampler_info, NULL, &texture->sampler));
+
     texture->width = width;
     texture->height = height;
 }
@@ -581,12 +486,80 @@ void texture_create_from_file(VkDevice device,
                                      const char *filename,
                                      Texture *texture) {
     ImageData image = {0};
-    if (!load_png_rgba(filename, &image)) die("Failed to load PNG texture");
+
+    FILE *fp = fopen(filename, "rb");
+    if (!fp) die("Failed to load PNG texture");
+
+    png_structp png = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    if (!png) { fclose(fp); die("Failed to load PNG texture"); }
+
+    png_infop info = png_create_info_struct(png);
+    if (!info) { png_destroy_read_struct(&png, NULL, NULL); fclose(fp); die("Failed to load PNG texture"); }
+
+    if (setjmp(png_jmpbuf(png))) {
+        png_destroy_read_struct(&png, &info, NULL);
+        fclose(fp);
+        die("Failed to load PNG texture");
+    }
+
+    png_init_io(png, fp);
+    png_read_info(png, info);
+
+    png_uint_32 width = png_get_image_width(png, info);
+    png_uint_32 height = png_get_image_height(png, info);
+    png_byte bit_depth = png_get_bit_depth(png, info);
+    png_byte color_type = png_get_color_type(png, info);
+
+    if (bit_depth == 16) png_set_strip_16(png);
+    if (color_type == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png);
+    if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) png_set_expand_gray_1_2_4_to_8(png);
+    if (png_get_valid(png, info, PNG_INFO_tRNS)) png_set_tRNS_to_alpha(png);
+    if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA) png_set_gray_to_rgb(png);
+    if (color_type == PNG_COLOR_TYPE_RGB ||
+        color_type == PNG_COLOR_TYPE_GRAY ||
+        color_type == PNG_COLOR_TYPE_PALETTE)
+    {
+        png_set_filler(png, 0xFF, PNG_FILLER_AFTER);
+    }
+
+    png_read_update_info(png, info);
+
+    size_t row_bytes = png_get_rowbytes(png, info);
+    uint8_t *pixels = malloc(row_bytes * height);
+    if (!pixels) {
+        png_destroy_read_struct(&png, &info, NULL);
+        fclose(fp);
+        die("Failed to load PNG texture");
+    }
+
+    png_bytep *row_pointers = malloc(sizeof(png_bytep) * height);
+    if (!row_pointers) {
+        free(pixels);
+        png_destroy_read_struct(&png, &info, NULL);
+        fclose(fp);
+        die("Failed to load PNG texture");
+    }
+
+    for (png_uint_32 y = 0; y < height; ++y) {
+        row_pointers[y] = pixels + y * row_bytes;
+    }
+
+    png_read_image(png, row_pointers);
+    png_read_end(png, NULL);
+
+    free(row_pointers);
+    png_destroy_read_struct(&png, &info, NULL);
+    fclose(fp);
+
+    image.pixels = pixels;
+    image.width = (uint32_t)width;
+    image.height = (uint32_t)height;
 
     texture_create_from_pixels(device, physical_device, command_pool, graphics_queue,
                                image.pixels, image.width, image.height, texture);
 
-    free_image(&image);
+    free(image.pixels);
+    image = (ImageData){0};
 }
 
 void texture_create_solid(VkDevice device,
@@ -612,38 +585,29 @@ void texture_destroy(VkDevice device, Texture *texture) {
 /* Shader Helpers                                                             */
 /* -------------------------------------------------------------------------- */
 
-static char *read_binary_file(const char *filepath, size_t *out_size) {
+VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
     FILE *file = fopen(filepath, "rb");
-    if (!file) return NULL;
+    if (!file) die("Failed to read shader file");
 
     fseek(file, 0, SEEK_END);
     long file_size = ftell(file);
     fseek(file, 0, SEEK_SET);
 
-    if (file_size <= 0) { fclose(file); return NULL; }
+    if (file_size <= 0) { fclose(file); die("Failed to read shader file"); }
 
-    char *buffer = malloc((size_t)file_size);
-    if (!buffer) { fclose(file); return NULL; }
+    char *code = malloc((size_t)file_size);
+    if (!code) { fclose(file); die("Failed to read shader file"); }
 
-    size_t read = fread(buffer, 1, (size_t)file_size, file);
+    size_t read = fread(code, 1, (size_t)file_size, file);
     fclose(file);
 
     if (read != (size_t)file_size) {
-        free(buffer);
-        return NULL;
+        free(code);
+        die("Failed to read shader file");
     }
 
-    *out_size = (size_t)file_size;
-    return buffer;
-}
-
-VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
-    size_t size = 0;
-    char *code = read_binary_file(filepath, &size);
-    if (!code) die("Failed to read shader file");
-
     VkShaderModuleCreateInfo create_info = {.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-                                            .codeSize = size,
+                                            .codeSize = (size_t)file_size,
                                             .pCode = (const uint32_t *)code};
 
     VkShaderModule module;
@@ -715,28 +679,6 @@ void swapchain_destroy(VkDevice device,
     res->image_count = 0;
     res->extent = (VkExtent2D){0, 0};
     res->format = VK_FORMAT_UNDEFINED;
-}
-
-static void create_depth_resources(VkDevice device,
-                                   VkPhysicalDevice physical_device,
-                                   VkExtent2D extent,
-                                   VkImage *image,
-                                   VkDeviceMemory *memory,
-                                   VkImageView *view) {
-    VkFormat depth_format = VK_FORMAT_D32_SFLOAT;
-
-    create_image(device,
-                 physical_device,
-                 extent.width,
-                 extent.height,
-                 depth_format,
-                 VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                 image,
-                 memory);
-
-    create_image_view(device, *image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, view);
 }
 
 static VkPipelineRasterizationStateCreateInfo make_raster_state(VkPolygonMode poly, VkCullModeFlags cull) {
@@ -829,8 +771,18 @@ void swapchain_create(SwapchainContext *ctx,
                           VK_IMAGE_ASPECT_COLOR_BIT, &res->image_views[i]);
     }
 
-    create_depth_resources(device, physical_device, extent,
-                           &res->depth_image, &res->depth_memory, &res->depth_view);
+    VkFormat depth_format = VK_FORMAT_D32_SFLOAT;
+    create_image(device,
+                 physical_device,
+                 extent.width,
+                 extent.height,
+                 depth_format,
+                 VK_IMAGE_TILING_OPTIMAL,
+                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                 &res->depth_image,
+                 &res->depth_memory);
+    create_image_view(device, res->depth_image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, &res->depth_view);
 
     VkAttachmentDescription attachments[2] = {
         {.format = surface_format.format, .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -1044,7 +996,15 @@ void swapchain_create(SwapchainContext *ctx,
 /* Renderer                                                                   */
 /* -------------------------------------------------------------------------- */
 
-static void renderer_update_overlay_buffers(Renderer *renderer) {
+static void renderer_recreate_swapchain(Renderer *renderer,
+                                        uint32_t framebuffer_width,
+                                        uint32_t framebuffer_height) {
+    if (framebuffer_width == 0 || framebuffer_height == 0) return;
+
+    vkDeviceWaitIdle(renderer->device);
+    swapchain_destroy(renderer->device, renderer->command_pool, &renderer->swapchain);
+    swapchain_create(&renderer->swapchain_ctx, &renderer->swapchain, framebuffer_width, framebuffer_height);
+
     const float crosshair_size = 0.03f;
     float aspect_correction = (float)renderer->swapchain.extent.height / (float)renderer->swapchain.extent.width;
 
@@ -1081,17 +1041,6 @@ static void renderer_update_overlay_buffers(Renderer *renderer) {
 
     upload_buffer_data(renderer->device, renderer->inventory_icon_vertex_memory,
                        icon_vertices, renderer->inventory_icon_vertex_count * sizeof(Vertex));
-}
-
-static void renderer_recreate_swapchain(Renderer *renderer,
-                                        uint32_t framebuffer_width,
-                                        uint32_t framebuffer_height) {
-    if (framebuffer_width == 0 || framebuffer_height == 0) return;
-
-    vkDeviceWaitIdle(renderer->device);
-    swapchain_destroy(renderer->device, renderer->command_pool, &renderer->swapchain);
-    swapchain_create(&renderer->swapchain_ctx, &renderer->swapchain, framebuffer_width, framebuffer_height);
-    renderer_update_overlay_buffers(renderer);
 }
 
 Renderer *renderer_create(void *display,
