@@ -350,20 +350,19 @@ static void free_image(ImageData *image) {
 }
 
 static VkSampler create_nearest_sampler(VkDevice device) {
-    VkSamplerCreateInfo sampler_info = {0};
-    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.magFilter = VK_FILTER_NEAREST;
-    sampler_info.minFilter = VK_FILTER_NEAREST;
-    sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-    sampler_info.anisotropyEnable = VK_FALSE;
-    sampler_info.maxAnisotropy = 1.0f;
-    sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-    sampler_info.unnormalizedCoordinates = VK_FALSE;
-    sampler_info.compareEnable = VK_FALSE;
-    sampler_info.compareOp = VK_COMPARE_OP_ALWAYS;
-    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+    VkSamplerCreateInfo sampler_info = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                        .magFilter = VK_FILTER_NEAREST,
+                                        .minFilter = VK_FILTER_NEAREST,
+                                        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                        .anisotropyEnable = VK_FALSE,
+                                        .maxAnisotropy = 1.0f,
+                                        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+                                        .unnormalizedCoordinates = VK_FALSE,
+                                        .compareEnable = VK_FALSE,
+                                        .compareOp = VK_COMPARE_OP_ALWAYS,
+                                        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST};
 
     VkSampler sampler;
     VK_CHECK(vkCreateSampler(device, &sampler_info, NULL, &sampler));
@@ -498,10 +497,9 @@ VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
     char *code = read_binary_file(filepath, &size);
     if (!code) die("Failed to read shader file");
 
-    VkShaderModuleCreateInfo create_info = {0};
-    create_info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-    create_info.codeSize = size;
-    create_info.pCode = (const uint32_t *)code;
+    VkShaderModuleCreateInfo create_info = {.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
+                                            .codeSize = size,
+                                            .pCode = (const uint32_t *)code};
 
     VkShaderModule module;
     VK_CHECK(vkCreateShaderModule(device, &create_info, NULL, &module));
@@ -750,41 +748,33 @@ void swapchain_create(SwapchainContext *ctx,
         {.binding = 1, .location = 3, .format = VK_FORMAT_R32_UINT, .offset = offsetof(InstanceData, type)}
     };
 
-    VkPipelineVertexInputStateCreateInfo vertex_input = {0};
-    vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertex_input.vertexBindingDescriptionCount = ARRAY_LENGTH(bindings);
-    vertex_input.pVertexBindingDescriptions = bindings;
-    vertex_input.vertexAttributeDescriptionCount = ARRAY_LENGTH(attributes);
-    vertex_input.pVertexAttributeDescriptions = attributes;
+    VkPipelineVertexInputStateCreateInfo vertex_input = {.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
+                                                          .vertexBindingDescriptionCount = ARRAY_LENGTH(bindings),
+                                                          .pVertexBindingDescriptions = bindings,
+                                                          .vertexAttributeDescriptionCount = ARRAY_LENGTH(attributes),
+                                                          .pVertexAttributeDescriptions = attributes};
 
-    VkPipelineInputAssemblyStateCreateInfo input_assembly_tri = {0};
-    input_assembly_tri.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-    input_assembly_tri.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineInputAssemblyStateCreateInfo input_assembly_tri = {.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+                                                                  .topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST};
 
-    VkPipelineInputAssemblyStateCreateInfo input_assembly_lines = input_assembly_tri;
-    input_assembly_lines.topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
+    VkPipelineInputAssemblyStateCreateInfo input_assembly_lines = {.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
+                                                                    .topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST};
 
-    VkViewport viewport = {0};
-    viewport.width = (float)extent.width;
-    viewport.height = (float)extent.height;
-    viewport.maxDepth = 1.0f;
+    VkViewport viewport = {.width = (float)extent.width, .height = (float)extent.height, .maxDepth = 1.0f};
 
-    VkRect2D scissor = {0};
-    scissor.extent = extent;
+    VkRect2D scissor = {.extent = extent};
 
-    VkPipelineViewportStateCreateInfo viewport_state = {0};
-    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-    viewport_state.viewportCount = 1;
-    viewport_state.pViewports = &viewport;
-    viewport_state.scissorCount = 1;
-    viewport_state.pScissors = &scissor;
+    VkPipelineViewportStateCreateInfo viewport_state = {.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
+                                                         .viewportCount = 1,
+                                                         .pViewports = &viewport,
+                                                         .scissorCount = 1,
+                                                         .pScissors = &scissor};
 
     VkPipelineRasterizationStateCreateInfo raster_solid = make_raster_state(VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT);
     VkPipelineRasterizationStateCreateInfo raster_wire = make_raster_state(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE);
 
-    VkPipelineMultisampleStateCreateInfo multisample = {0};
-    multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-    multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    VkPipelineMultisampleStateCreateInfo multisample = {.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
+                                                         .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT};
 
     VkPipelineDepthStencilStateCreateInfo depth_solid = make_depth_state(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
     VkPipelineDepthStencilStateCreateInfo depth_wire = make_depth_state(VK_TRUE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
@@ -851,22 +841,20 @@ void swapchain_create(SwapchainContext *ctx,
     pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
     pool_size.descriptorCount = image_count * ctx->texture_count * 2;
 
-    VkDescriptorPoolCreateInfo pool_info = {0};
-    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_info.poolSizeCount = 1;
-    pool_info.pPoolSizes = &pool_size;
-    pool_info.maxSets = image_count * 2;
+    VkDescriptorPoolCreateInfo pool_info = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+                                            .poolSizeCount = 1,
+                                            .pPoolSizes = &pool_size,
+                                            .maxSets = image_count * 2};
 
     VK_CHECK(vkCreateDescriptorPool(device, &pool_info, NULL, &res->descriptor_pool));
 
     VkDescriptorSetLayout *layouts = malloc(sizeof(VkDescriptorSetLayout) * image_count);
     for (uint32_t i = 0; i < image_count; ++i) layouts[i] = ctx->descriptor_set_layout;
 
-    VkDescriptorSetAllocateInfo alloc_info = {0};
-    alloc_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    alloc_info.descriptorPool = res->descriptor_pool;
-    alloc_info.descriptorSetCount = image_count;
-    alloc_info.pSetLayouts = layouts;
+    VkDescriptorSetAllocateInfo alloc_info = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                                              .descriptorPool = res->descriptor_pool,
+                                              .descriptorSetCount = image_count,
+                                              .pSetLayouts = layouts};
 
     res->descriptor_sets_normal = malloc(sizeof(VkDescriptorSet) * image_count);
     res->descriptor_sets_highlight = malloc(sizeof(VkDescriptorSet) * image_count);

@@ -79,32 +79,26 @@ int main(void) {
     /* Vulkan Instance and Surface                                            */
     /* ---------------------------------------------------------------------- */
 
-    VkApplicationInfo app_info = {0};
-    app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    app_info.pApplicationName = "Voxel Engine";
-    app_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-    app_info.pEngineName = "No Engine";
-    app_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-    app_info.apiVersion = VK_API_VERSION_1_1;
+    const char *instance_extensions[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_XLIB_SURFACE_EXTENSION_NAME};
 
-    const char *instance_extensions[] = {
-        VK_KHR_SURFACE_EXTENSION_NAME,
-        VK_KHR_XLIB_SURFACE_EXTENSION_NAME
-    };
+    VkApplicationInfo app_info = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+                                  .pApplicationName = "Voxel Engine",
+                                  .applicationVersion = VK_MAKE_VERSION(1, 0, 0),
+                                  .pEngineName = "No Engine",
+                                  .engineVersion = VK_MAKE_VERSION(1, 0, 0),
+                                  .apiVersion = VK_API_VERSION_1_1};
 
-    VkInstanceCreateInfo instance_info = {0};
-    instance_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    instance_info.pApplicationInfo = &app_info;
-    instance_info.enabledExtensionCount = ARRAY_LENGTH(instance_extensions);
-    instance_info.ppEnabledExtensionNames = instance_extensions;
+    VkInstanceCreateInfo instance_info = {.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+                                          .pApplicationInfo = &app_info,
+                                          .enabledExtensionCount = ARRAY_LENGTH(instance_extensions),
+                                          .ppEnabledExtensionNames = instance_extensions};
 
     VkInstance instance;
     VK_CHECK(vkCreateInstance(&instance_info, NULL, &instance));
 
-    VkXlibSurfaceCreateInfoKHR surface_info = {0};
-    surface_info.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
-    surface_info.dpy = display;
-    surface_info.window = window;
+    VkXlibSurfaceCreateInfoKHR surface_info = {.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
+                                                .dpy = display,
+                                                .window = window};
 
     VkSurfaceKHR surface;
     VK_CHECK(vkCreateXlibSurfaceKHR(instance, &surface_info, NULL, &surface));
@@ -151,27 +145,24 @@ int main(void) {
     if (physical_device == VK_NULL_HANDLE) die("No suitable GPU found");
 
     float queue_priority = 1.0f;
-    VkDeviceQueueCreateInfo queue_info = {0};
-    queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_info.queueFamilyIndex = graphics_family;
-    queue_info.queueCount = 1;
-    queue_info.pQueuePriorities = &queue_priority;
+    VkDeviceQueueCreateInfo queue_info = {.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
+                                          .queueFamilyIndex = graphics_family,
+                                          .queueCount = 1,
+                                          .pQueuePriorities = &queue_priority};
 
-    const char *device_extensions[] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+    const char *device_extensions[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
     VkPhysicalDeviceFeatures supported_features;
     vkGetPhysicalDeviceFeatures(physical_device, &supported_features);
 
-    VkPhysicalDeviceFeatures enabled_features = {0};
-    enabled_features.wideLines = supported_features.wideLines ? VK_TRUE : VK_FALSE;
+    VkPhysicalDeviceFeatures enabled_features = {.wideLines = supported_features.wideLines ? VK_TRUE : VK_FALSE};
 
-    VkDeviceCreateInfo device_info = {0};
-    device_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_info.queueCreateInfoCount = 1;
-    device_info.pQueueCreateInfos = &queue_info;
-    device_info.enabledExtensionCount = ARRAY_LENGTH(device_extensions);
-    device_info.ppEnabledExtensionNames = device_extensions;
-    device_info.pEnabledFeatures = &enabled_features;
+    VkDeviceCreateInfo device_info = {.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
+                                      .queueCreateInfoCount = 1,
+                                      .pQueueCreateInfos = &queue_info,
+                                      .enabledExtensionCount = ARRAY_LENGTH(device_extensions),
+                                      .ppEnabledExtensionNames = device_extensions,
+                                      .pEnabledFeatures = &enabled_features};
 
     VkDevice device;
     VK_CHECK(vkCreateDevice(physical_device, &device_info, NULL, &device));
@@ -179,10 +170,9 @@ int main(void) {
     VkQueue graphics_queue;
     vkGetDeviceQueue(device, graphics_family, 0, &graphics_queue);
 
-    VkCommandPoolCreateInfo pool_info = {0};
-    pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    pool_info.queueFamilyIndex = graphics_family;
-    pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    VkCommandPoolCreateInfo pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+                                         .queueFamilyIndex = graphics_family,
+                                         .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT};
 
     VkCommandPool command_pool;
     VK_CHECK(vkCreateCommandPool(device, &pool_info, NULL, &command_pool));
@@ -319,31 +309,27 @@ int main(void) {
        - push constants: mat4 view, mat4 proj
     */
 
-    VkDescriptorSetLayoutBinding sampler_binding = {0};
-    sampler_binding.binding = 0;
-    sampler_binding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    sampler_binding.descriptorCount = BLOCK_TYPE_COUNT;
-    sampler_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    VkDescriptorSetLayoutBinding sampler_binding = {.binding = 0,
+                                                     .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                     .descriptorCount = BLOCK_TYPE_COUNT,
+                                                     .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT};
 
-    VkDescriptorSetLayoutCreateInfo layout_info = {0};
-    layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-    layout_info.bindingCount = 1;
-    layout_info.pBindings = &sampler_binding;
+    VkDescriptorSetLayoutCreateInfo layout_info = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+                                                    .bindingCount = 1,
+                                                    .pBindings = &sampler_binding};
 
     VkDescriptorSetLayout descriptor_layout;
     VK_CHECK(vkCreateDescriptorSetLayout(device, &layout_info, NULL, &descriptor_layout));
 
-    VkPushConstantRange push_range = {0};
-    push_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-    push_range.offset = 0;
-    push_range.size = sizeof(PushConstants);
+    VkPushConstantRange push_range = {.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
+                                      .offset = 0,
+                                      .size = sizeof(PushConstants)};
 
-    VkPipelineLayoutCreateInfo pipeline_layout_info = {0};
-    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.setLayoutCount = 1;
-    pipeline_layout_info.pSetLayouts = &descriptor_layout;
-    pipeline_layout_info.pushConstantRangeCount = 1;
-    pipeline_layout_info.pPushConstantRanges = &push_range;
+    VkPipelineLayoutCreateInfo pipeline_layout_info = {.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+                                                        .setLayoutCount = 1,
+                                                        .pSetLayouts = &descriptor_layout,
+                                                        .pushConstantRangeCount = 1,
+                                                        .pPushConstantRanges = &push_range};
 
     VkPipelineLayout pipeline_layout;
     VK_CHECK(vkCreatePipelineLayout(device, &pipeline_layout_info, NULL, &pipeline_layout));
@@ -359,12 +345,9 @@ int main(void) {
     VkSemaphore render_finished = VK_NULL_HANDLE;
     VkFence in_flight = VK_NULL_HANDLE;
 
-    VkSemaphoreCreateInfo semaphore_info = {0};
-    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-
-    VkFenceCreateInfo fence_info = {0};
-    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    VkSemaphoreCreateInfo semaphore_info = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    VkFenceCreateInfo fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
+                                    .flags = VK_FENCE_CREATE_SIGNALED_BIT};
 
     VK_CHECK(vkCreateSemaphore(device, &semaphore_info, NULL, &image_available));
     VK_CHECK(vkCreateSemaphore(device, &semaphore_info, NULL, &render_finished));
