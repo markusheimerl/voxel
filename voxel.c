@@ -162,10 +162,9 @@ static void end_single_use_commands(VkDevice device, VkCommandPool command_pool,
                                     VkQueue graphics_queue, VkCommandBuffer command_buffer) {
     VK_CHECK(vkEndCommandBuffer(command_buffer));
 
-    VkSubmitInfo submit_info = {0};
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &command_buffer;
+    VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                                .commandBufferCount = 1,
+                                .pCommandBuffers = &command_buffer};
 
     VK_CHECK(vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
     VK_CHECK(vkQueueWaitIdle(graphics_queue));
@@ -184,18 +183,13 @@ static void transition_image_layout(VkDevice device,
 
     VkCommandBuffer command_buffer = begin_single_use_commands(device, command_pool);
 
-    VkImageMemoryBarrier barrier = {0};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = old_layout;
-    barrier.newLayout = new_layout;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.image = image;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    barrier.subresourceRange.baseMipLevel = 0;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.baseArrayLayer = 0;
-    barrier.subresourceRange.layerCount = 1;
+    VkImageMemoryBarrier barrier = {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                                    .oldLayout = old_layout,
+                                    .newLayout = new_layout,
+                                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                    .image = image,
+                                    .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
 
     VkPipelineStageFlags src_stage = 0;
     VkPipelineStageFlags dst_stage = 0;
@@ -240,14 +234,8 @@ static void copy_buffer_to_image(VkDevice device,
                                  uint32_t height) {
     VkCommandBuffer command_buffer = begin_single_use_commands(device, command_pool);
 
-    VkBufferImageCopy region = {0};
-    region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    region.imageSubresource.mipLevel = 0;
-    region.imageSubresource.baseArrayLayer = 0;
-    region.imageSubresource.layerCount = 1;
-    region.imageExtent.width = width;
-    region.imageExtent.height = height;
-    region.imageExtent.depth = 1;
+    VkBufferImageCopy region = {.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                                .imageExtent = {width, height, 1}};
 
     vkCmdCopyBufferToImage(command_buffer,
                            buffer,
@@ -755,7 +743,7 @@ void swapchain_create(SwapchainContext *ctx,
                                                          .pScissors = &scissor};
 
     VkPipelineRasterizationStateCreateInfo raster_solid = make_raster_state(VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT);
-    VkPipelineRasterizationStateCreateInfo raster_wire = make_raster_state(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE);
+    VkPipelineRasterizationStateCreateInfo raster_wire = make_raster_state(VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE);
 
     VkPipelineMultisampleStateCreateInfo multisample = {.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
                                                          .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT};
