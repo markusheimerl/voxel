@@ -7,7 +7,7 @@
 /* Camera                                                                     */
 /* -------------------------------------------------------------------------- */
 
-typedef struct {
+typedef struct Camera {
     Vec3 position;
     Vec3 front;
     Vec3 up;
