@@ -10,21 +10,21 @@
 
 #define ARRAY_LENGTH(a) (sizeof(a) / sizeof((a)[0]))
 
-typedef struct VoxelRenderer VoxelRenderer;
+typedef struct Renderer Renderer;
 typedef struct Player Player;
 typedef struct Camera Camera;
 
 void die(const char *message);
 
-VoxelRenderer *voxel_renderer_create(void *display,
+Renderer *renderer_create(void *display,
                                      unsigned long window,
                                      uint32_t framebuffer_width,
                                      uint32_t framebuffer_height);
-void voxel_renderer_destroy(VoxelRenderer *renderer);
-void voxel_renderer_request_resize(VoxelRenderer *renderer,
+void renderer_destroy(Renderer *renderer);
+void renderer_request_resize(Renderer *renderer,
                                    uint32_t framebuffer_width,
                                    uint32_t framebuffer_height);
-bool voxel_renderer_draw_frame(VoxelRenderer *renderer,
+bool renderer_draw_frame(Renderer *renderer,
                                World *world,
                                const Player *player,
                                Camera *camera,

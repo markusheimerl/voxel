@@ -7,7 +7,7 @@
 #include "camera.h"
 #include "math.h"
 #include "world.h"
-#include "voxel.h"
+#include "renderer.h"
 
 /* -------------------------------------------------------------------------- */
 /* Player                                                                     */

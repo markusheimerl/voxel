@@ -3,7 +3,7 @@ CFLAGS := -O3 -march=native -Wall -Wextra
 LDFLAGS := -lvulkan -lX11 -lpng -lm
 
 TARGET := voxel.out
-SRC := main.c world.c math.c voxel.c camera.c player.c io.c
+SRC := voxel.c world.c math.c renderer.c camera.c player.c io.c
 OBJ := $(SRC:.c=.o)
 
 SHADER_DIR := shaders
