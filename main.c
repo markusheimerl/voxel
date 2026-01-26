@@ -471,10 +471,7 @@ int main(void) {
                 {{ 0.0f,  crosshair_size, 0.0f}, {1.0f, 0.0f}},
             };
 
-            void *ch = NULL;
-            VK_CHECK(vkMapMemory(device, crosshair_vertex_memory, 0, sizeof(crosshair_vertices), 0, &ch));
-            memcpy(ch, crosshair_vertices, sizeof(crosshair_vertices));
-            vkUnmapMemory(device, crosshair_vertex_memory);
+            upload_buffer_data(device, crosshair_vertex_memory, crosshair_vertices, sizeof(crosshair_vertices));
 
             /* Inventory grid (3x9) in clip space, keep square on screen */
             float inv_h_step = 0.0f;
@@ -486,11 +483,7 @@ int main(void) {
                                             &inventory_vertex_count,
                                             &inv_h_step,
                                             &inv_v_step);
-            void *inv = NULL;
-            VK_CHECK(vkMapMemory(device, inventory_vertex_memory, 0,
-                                 inventory_vertex_count * sizeof(Vertex), 0, &inv));
-            memcpy(inv, inventory_vertices, inventory_vertex_count * sizeof(Vertex));
-            vkUnmapMemory(device, inventory_vertex_memory);
+            upload_buffer_data(device, inventory_vertex_memory, inventory_vertices, inventory_vertex_count * sizeof(Vertex));
 
             /* Inventory icon quad (centered at origin, translated by instances) */
             Vertex icon_vertices[INVENTORY_ICON_VERTEX_COUNT];
@@ -500,11 +493,7 @@ int main(void) {
                                             INVENTORY_ICON_VERTEX_COUNT,
                                             &icon_vertex_count);
 
-            void *icon = NULL;
-            VK_CHECK(vkMapMemory(device, inventory_icon_vertex_memory, 0,
-                                 icon_vertex_count * sizeof(Vertex), 0, &icon));
-            memcpy(icon, icon_vertices, icon_vertex_count * sizeof(Vertex));
-            vkUnmapMemory(device, inventory_icon_vertex_memory);
+            upload_buffer_data(device, inventory_icon_vertex_memory, icon_vertices, icon_vertex_count * sizeof(Vertex));
 
             swapchain_needs_recreate = false;
         }
@@ -561,15 +550,9 @@ int main(void) {
                         }
                         XStoreName(display, window, window_title_game);
                     }
-                } else if (!player.inventory_open && sym == XK_1) player.selected_slot = 0;
-                else if (!player.inventory_open && sym == XK_2) player.selected_slot = 1;
-                else if (!player.inventory_open && sym == XK_3) player.selected_slot = 2;
-                else if (!player.inventory_open && sym == XK_4) player.selected_slot = 3;
-                else if (!player.inventory_open && sym == XK_5) player.selected_slot = 4;
-                else if (!player.inventory_open && sym == XK_6) player.selected_slot = 5;
-                else if (!player.inventory_open && sym == XK_7) player.selected_slot = 6;
-                else if (!player.inventory_open && sym == XK_8) player.selected_slot = 7;
-                else if (!player.inventory_open && sym == XK_9) player.selected_slot = 8;
+                } else if (!player.inventory_open && sym >= XK_1 && sym <= XK_9) {
+                    player.selected_slot = (uint8_t)(sym - XK_1);
+                }
 
                 if (sym < 256) keys[sym] = true;
             } break;
@@ -846,11 +829,7 @@ int main(void) {
             bg_vertices[5] = (Vertex){{left,  bottom, 0.0f}, {0.0f, 1.0f}};
 
             inventory_bg_vertex_count = INVENTORY_BG_VERTEX_COUNT;
-            void *bg = NULL;
-            VK_CHECK(vkMapMemory(device, inventory_bg_vertex_memory, 0,
-                                 inventory_bg_vertex_count * sizeof(Vertex), 0, &bg));
-            memcpy(bg, bg_vertices, inventory_bg_vertex_count * sizeof(Vertex));
-            vkUnmapMemory(device, inventory_bg_vertex_memory);
+            upload_buffer_data(device, inventory_bg_vertex_memory, bg_vertices, inventory_bg_vertex_count * sizeof(Vertex));
 
             Vertex selection_vertices[INVENTORY_SELECTION_VERTEX_COUNT];
             player_inventory_selection_vertices((int)player.selected_slot,
@@ -859,11 +838,7 @@ int main(void) {
                                                  INVENTORY_SELECTION_VERTEX_COUNT,
                                                  &inventory_selection_vertex_count);
             if (inventory_selection_vertex_count > 0) {
-                void *sel = NULL;
-                VK_CHECK(vkMapMemory(device, inventory_selection_vertex_memory, 0,
-                                     inventory_selection_vertex_count * sizeof(Vertex), 0, &sel));
-                memcpy(sel, selection_vertices, inventory_selection_vertex_count * sizeof(Vertex));
-                vkUnmapMemory(device, inventory_selection_vertex_memory);
+                upload_buffer_data(device, inventory_selection_vertex_memory, selection_vertices, inventory_selection_vertex_count * sizeof(Vertex));
             }
 
             Vertex count_vertices[INVENTORY_COUNT_MAX_VERTICES];
@@ -873,11 +848,7 @@ int main(void) {
                                                 INVENTORY_COUNT_MAX_VERTICES);
 
             if (inventory_count_vertex_count > 0) {
-                void *cnt = NULL;
-                VK_CHECK(vkMapMemory(device, inventory_count_vertex_memory, 0,
-                                     inventory_count_vertex_count * sizeof(Vertex), 0, &cnt));
-                memcpy(cnt, count_vertices, inventory_count_vertex_count * sizeof(Vertex));
-                vkUnmapMemory(device, inventory_count_vertex_memory);
+                upload_buffer_data(device, inventory_count_vertex_memory, count_vertices, inventory_count_vertex_count * sizeof(Vertex));
             }
         }
 
