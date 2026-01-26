@@ -1122,19 +1122,14 @@ int main(void) {
 
     vkDestroyBuffer(device, crosshair_vertex_buffer, NULL);
     vkFreeMemory(device, crosshair_vertex_memory, NULL);
-
     vkDestroyBuffer(device, inventory_vertex_buffer, NULL);
     vkFreeMemory(device, inventory_vertex_memory, NULL);
-
     vkDestroyBuffer(device, inventory_icon_vertex_buffer, NULL);
     vkFreeMemory(device, inventory_icon_vertex_memory, NULL);
-
     vkDestroyBuffer(device, inventory_count_vertex_buffer, NULL);
     vkFreeMemory(device, inventory_count_vertex_memory, NULL);
-
     vkDestroyBuffer(device, inventory_selection_vertex_buffer, NULL);
     vkFreeMemory(device, inventory_selection_vertex_memory, NULL);
-
     vkDestroyBuffer(device, inventory_bg_vertex_buffer, NULL);
     vkFreeMemory(device, inventory_bg_vertex_memory, NULL);
 
@@ -1155,7 +1150,6 @@ int main(void) {
 
     vkDestroyPipelineLayout(device, pipeline_layout, NULL);
     vkDestroyDescriptorSetLayout(device, descriptor_layout, NULL);
-
     vkDestroyShaderModule(device, vert_shader, NULL);
     vkDestroyShaderModule(device, frag_shader, NULL);
 
