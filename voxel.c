@@ -6,18 +6,7 @@
 /* Vulkan Error Helpers                                                       */
 /* -------------------------------------------------------------------------- */
 
-#define ARRAY_LENGTH(a) (sizeof(a) / sizeof((a)[0]))
-
-#define VK_CHECK(call)                                                            \
-    do {                                                                          \
-        VkResult vk_check_result__ = (call);                                      \
-        if (vk_check_result__ != VK_SUCCESS) {                                    \
-            fprintf(stderr, "%s failed: %s\n", #call, vk_result_to_string(vk_check_result__)); \
-            exit(EXIT_FAILURE);                                                   \
-        }                                                                         \
-    } while (0)
-
-static void die(const char *message) {
+void die(const char *message) {
     fprintf(stderr, "Error: %s\n", message);
     exit(EXIT_FAILURE);
 }
@@ -98,6 +87,13 @@ void create_buffer(VkDevice device,
 
     VK_CHECK(vkAllocateMemory(device, &alloc_info, NULL, memory));
     VK_CHECK(vkBindBufferMemory(device, *buffer, *memory, 0));
+}
+
+void upload_buffer_data(VkDevice device, VkDeviceMemory memory, const void *data, size_t size) {
+    void *mapped;
+    VK_CHECK(vkMapMemory(device, memory, 0, size, 0, &mapped));
+    memcpy(mapped, data, size);
+    vkUnmapMemory(device, memory);
 }
 
 static void create_image(VkDevice device,

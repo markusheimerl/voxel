@@ -27,6 +27,7 @@
     } while (0)
 
 const char *vk_result_to_string(VkResult result);
+void die(const char *message);
 
 /* -------------------------------------------------------------------------- */
 /* Vulkan Buffer / Image Helpers                                              */
@@ -38,6 +39,8 @@ void create_buffer(VkDevice device,
                    VkMemoryPropertyFlags properties,
                    VkBuffer *buffer,
                    VkDeviceMemory *memory);
+
+void upload_buffer_data(VkDevice device, VkDeviceMemory memory, const void *data, size_t size);
 
 /* -------------------------------------------------------------------------- */
 /* Texture Handling                                                           */

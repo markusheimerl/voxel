@@ -21,22 +21,6 @@
 #include "voxel.h"
 #include "player.h"
 
-#define ARRAY_LENGTH(a) (sizeof(a) / sizeof((a)[0]))
-
-#define VK_CHECK(call)                                                            \
-    do {                                                                          \
-        VkResult vk_check_result__ = (call);                                      \
-        if (vk_check_result__ != VK_SUCCESS) {                                    \
-            fprintf(stderr, "%s failed: %s\n", #call, vk_result_to_string(vk_check_result__)); \
-            exit(EXIT_FAILURE);                                                   \
-        }                                                                         \
-    } while (0)
-
-static void die(const char *message) {
-    fprintf(stderr, "Error: %s\n", message);
-    exit(EXIT_FAILURE);
-}
-
 static bool is_key_pressed(const bool *keys, KeySym sym) {
     if (sym < 256) return keys[sym];
     return false;
@@ -231,11 +215,7 @@ int main(void) {
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &block_vertex_buffer, &block_vertex_memory);
-
-    void *mapped = NULL;
-    VK_CHECK(vkMapMemory(device, block_vertex_memory, 0, sizeof(BLOCK_VERTICES), 0, &mapped));
-    memcpy(mapped, BLOCK_VERTICES, sizeof(BLOCK_VERTICES));
-    vkUnmapMemory(device, block_vertex_memory);
+    upload_buffer_data(device, block_vertex_memory, BLOCK_VERTICES, sizeof(BLOCK_VERTICES));
 
     VkBuffer block_index_buffer;
     VkDeviceMemory block_index_memory;
@@ -243,10 +223,7 @@ int main(void) {
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &block_index_buffer, &block_index_memory);
-
-    VK_CHECK(vkMapMemory(device, block_index_memory, 0, sizeof(BLOCK_INDICES), 0, &mapped));
-    memcpy(mapped, BLOCK_INDICES, sizeof(BLOCK_INDICES));
-    vkUnmapMemory(device, block_index_memory);
+    upload_buffer_data(device, block_index_memory, BLOCK_INDICES, sizeof(BLOCK_INDICES));
 
     VkBuffer edge_vertex_buffer;
     VkDeviceMemory edge_vertex_memory;
@@ -254,10 +231,7 @@ int main(void) {
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &edge_vertex_buffer, &edge_vertex_memory);
-
-    VK_CHECK(vkMapMemory(device, edge_vertex_memory, 0, sizeof(EDGE_VERTICES), 0, &mapped));
-    memcpy(mapped, EDGE_VERTICES, sizeof(EDGE_VERTICES));
-    vkUnmapMemory(device, edge_vertex_memory);
+    upload_buffer_data(device, edge_vertex_memory, EDGE_VERTICES, sizeof(EDGE_VERTICES));
 
     VkBuffer edge_index_buffer;
     VkDeviceMemory edge_index_memory;
@@ -265,10 +239,7 @@ int main(void) {
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &edge_index_buffer, &edge_index_memory);
-
-    VK_CHECK(vkMapMemory(device, edge_index_memory, 0, sizeof(EDGE_INDICES), 0, &mapped));
-    memcpy(mapped, EDGE_INDICES, sizeof(EDGE_INDICES));
-    vkUnmapMemory(device, edge_index_memory);
+    upload_buffer_data(device, edge_index_memory, EDGE_INDICES, sizeof(EDGE_INDICES));
 
     /* Crosshair vertices (in clip space, updated on resize to keep aspect) */
     VkBuffer crosshair_vertex_buffer;
