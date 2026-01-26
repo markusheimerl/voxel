@@ -954,7 +954,7 @@ void swapchain_create(SwapchainContext *ctx,
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &res->pipeline_crosshair));
 
     pipeline_info.pInputAssemblyState = &input_assembly_tri;
-    pipeline_info.pRasterizationState = &raster_wire;
+    pipeline_info.pRasterizationState = &raster_solid;
     pipeline_info.pDepthStencilState = &depth_cross;
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &res->pipeline_overlay));
 
@@ -1515,11 +1515,11 @@ bool voxel_renderer_draw_frame(VoxelRenderer *renderer,
         const float top = inv_half;
 
         bg_vertices[0] = (Vertex){{left,  top,    0.0f}, {0.0f, 0.0f}};
-        bg_vertices[1] = (Vertex){{right, top,    0.0f}, {1.0f, 0.0f}};
-        bg_vertices[2] = (Vertex){{right, bottom, 0.0f}, {1.0f, 1.0f}};
+        bg_vertices[1] = (Vertex){{right, bottom, 0.0f}, {1.0f, 1.0f}};
+        bg_vertices[2] = (Vertex){{right, top,    0.0f}, {1.0f, 0.0f}};
         bg_vertices[3] = (Vertex){{left,  top,    0.0f}, {0.0f, 0.0f}};
-        bg_vertices[4] = (Vertex){{right, bottom, 0.0f}, {1.0f, 1.0f}};
-        bg_vertices[5] = (Vertex){{left,  bottom, 0.0f}, {0.0f, 1.0f}};
+        bg_vertices[4] = (Vertex){{left,  bottom, 0.0f}, {0.0f, 1.0f}};
+        bg_vertices[5] = (Vertex){{right, bottom, 0.0f}, {1.0f, 1.0f}};
 
         renderer->inventory_bg_vertex_count = INVENTORY_BG_VERTEX_COUNT;
         upload_buffer_data(renderer->device, renderer->inventory_bg_vertex_memory,
