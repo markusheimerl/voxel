@@ -67,23 +67,21 @@ void create_buffer(VkDevice device,
                     VkMemoryPropertyFlags properties,
                     VkBuffer *buffer,
                     VkDeviceMemory *memory) {
-    VkBufferCreateInfo buffer_info = {0};
-    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    buffer_info.size = size;
-    buffer_info.usage = usage;
-    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkBufferCreateInfo buffer_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+                                      .size = size,
+                                      .usage = usage,
+                                      .sharingMode = VK_SHARING_MODE_EXCLUSIVE};
 
     VK_CHECK(vkCreateBuffer(device, &buffer_info, NULL, buffer));
 
     VkMemoryRequirements requirements;
     vkGetBufferMemoryRequirements(device, *buffer, &requirements);
 
-    VkMemoryAllocateInfo alloc_info = {0};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize = requirements.size;
-    alloc_info.memoryTypeIndex = find_memory_type(physical_device,
-                                                  requirements.memoryTypeBits,
-                                                  properties);
+    VkMemoryAllocateInfo alloc_info = {.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                                       .allocationSize = requirements.size,
+                                       .memoryTypeIndex = find_memory_type(physical_device,
+                                                                           requirements.memoryTypeBits,
+                                                                           properties)};
 
     VK_CHECK(vkAllocateMemory(device, &alloc_info, NULL, memory));
     VK_CHECK(vkBindBufferMemory(device, *buffer, *memory, 0));
@@ -119,50 +117,42 @@ static void create_image(VkDevice device,
                          VkMemoryPropertyFlags properties,
                          VkImage *image,
                          VkDeviceMemory *memory) {
-    VkImageCreateInfo image_info = {0};
-    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.extent.width = width;
-    image_info.extent.height = height;
-    image_info.extent.depth = 1;
-    image_info.mipLevels = 1;
-    image_info.arrayLayers = 1;
-    image_info.format = format;
-    image_info.tiling = tiling;
-    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    image_info.usage = usage;
-    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkImageCreateInfo image_info = {.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+                                    .imageType = VK_IMAGE_TYPE_2D,
+                                    .extent = {width, height, 1},
+                                    .mipLevels = 1,
+                                    .arrayLayers = 1,
+                                    .format = format,
+                                    .tiling = tiling,
+                                    .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                                    .usage = usage,
+                                    .samples = VK_SAMPLE_COUNT_1_BIT,
+                                    .sharingMode = VK_SHARING_MODE_EXCLUSIVE};
 
     VK_CHECK(vkCreateImage(device, &image_info, NULL, image));
 
     VkMemoryRequirements requirements;
     vkGetImageMemoryRequirements(device, *image, &requirements);
 
-    VkMemoryAllocateInfo alloc_info = {0};
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.allocationSize = requirements.size;
-    alloc_info.memoryTypeIndex = find_memory_type(physical_device,
-                                                  requirements.memoryTypeBits,
-                                                  properties);
+    VkMemoryAllocateInfo alloc_info = {.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
+                                       .allocationSize = requirements.size};
+    alloc_info.memoryTypeIndex = find_memory_type(physical_device, requirements.memoryTypeBits, properties);
 
     VK_CHECK(vkAllocateMemory(device, &alloc_info, NULL, memory));
     VK_CHECK(vkBindImageMemory(device, *image, *memory, 0));
 }
 
 static VkCommandBuffer begin_single_use_commands(VkDevice device, VkCommandPool command_pool) {
-    VkCommandBufferAllocateInfo alloc_info = {0};
-    alloc_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    alloc_info.commandPool = command_pool;
-    alloc_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    alloc_info.commandBufferCount = 1;
+    VkCommandBufferAllocateInfo alloc_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                                              .commandPool = command_pool,
+                                              .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                                              .commandBufferCount = 1};
 
     VkCommandBuffer command_buffer;
     VK_CHECK(vkAllocateCommandBuffers(device, &alloc_info, &command_buffer));
 
-    VkCommandBufferBeginInfo begin_info = {0};
-    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkCommandBufferBeginInfo begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                                           .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
 
     VK_CHECK(vkBeginCommandBuffer(command_buffer, &begin_info));
     return command_buffer;
@@ -655,20 +645,19 @@ void swapchain_create(SwapchainContext *ctx,
         extent.height = framebuffer_height;
     }
 
-    VkSwapchainCreateInfoKHR swapchain_info = {0};
-    swapchain_info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-    swapchain_info.surface = surface;
-    swapchain_info.minImageCount = image_count;
-    swapchain_info.imageFormat = surface_format.format;
-    swapchain_info.imageColorSpace = surface_format.colorSpace;
-    swapchain_info.imageExtent = extent;
-    swapchain_info.imageArrayLayers = 1;
-    swapchain_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-    swapchain_info.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    swapchain_info.preTransform = capabilities.currentTransform;
-    swapchain_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-    swapchain_info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
-    swapchain_info.clipped = VK_TRUE;
+    VkSwapchainCreateInfoKHR swapchain_info = {.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
+                                                .surface = surface,
+                                                .minImageCount = image_count,
+                                                .imageFormat = surface_format.format,
+                                                .imageColorSpace = surface_format.colorSpace,
+                                                .imageExtent = extent,
+                                                .imageArrayLayers = 1,
+                                                .imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+                                                .imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
+                                                .preTransform = capabilities.currentTransform,
+                                                .compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
+                                                .presentMode = VK_PRESENT_MODE_FIFO_KHR,
+                                                .clipped = VK_TRUE};
 
     VK_CHECK(vkCreateSwapchainKHR(device, &swapchain_info, NULL, &res->swapchain));
 
@@ -707,24 +696,19 @@ void swapchain_create(SwapchainContext *ctx,
                                     .pColorAttachments = &color_ref,
                                     .pDepthStencilAttachment = &depth_ref};
 
-    VkSubpassDependency dependency = {0};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
-                              VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT |
-                               VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+    VkSubpassDependency dependency = {.srcSubpass = VK_SUBPASS_EXTERNAL,
+                                      .dstSubpass = 0,
+                                      .srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+                                      .dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+                                      .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT};
 
-    VkRenderPassCreateInfo render_pass_info = {0};
-    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    render_pass_info.attachmentCount = ARRAY_LENGTH(attachments);
-    render_pass_info.pAttachments = attachments;
-    render_pass_info.subpassCount = 1;
-    render_pass_info.pSubpasses = &subpass;
-    render_pass_info.dependencyCount = 1;
-    render_pass_info.pDependencies = &dependency;
+    VkRenderPassCreateInfo render_pass_info = {.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+                                                .attachmentCount = ARRAY_LENGTH(attachments),
+                                                .pAttachments = attachments,
+                                                .subpassCount = 1,
+                                                .pSubpasses = &subpass,
+                                                .dependencyCount = 1,
+                                                .pDependencies = &dependency};
 
     VK_CHECK(vkCreateRenderPass(device, &render_pass_info, NULL, &res->render_pass));
 
@@ -780,25 +764,23 @@ void swapchain_create(SwapchainContext *ctx,
     VkPipelineDepthStencilStateCreateInfo depth_wire = make_depth_state(VK_TRUE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
     VkPipelineDepthStencilStateCreateInfo depth_cross = make_depth_state(VK_FALSE, VK_FALSE, VK_COMPARE_OP_ALWAYS);
 
-    VkPipelineColorBlendAttachmentState color_blend = {0};
-    color_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
-                                 VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendAttachmentState color_blend = {
+        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
+    };
 
-    VkPipelineColorBlendStateCreateInfo color_state = {0};
-    color_state.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-    color_state.attachmentCount = 1;
-    color_state.pAttachments = &color_blend;
+    VkPipelineColorBlendStateCreateInfo color_state = {.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
+                                                        .attachmentCount = 1,
+                                                        .pAttachments = &color_blend};
 
-    VkGraphicsPipelineCreateInfo pipeline_info = {0};
-    pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_info.stageCount = ARRAY_LENGTH(shader_stages);
-    pipeline_info.pStages = shader_stages;
-    pipeline_info.pVertexInputState = &vertex_input;
-    pipeline_info.pViewportState = &viewport_state;
-    pipeline_info.pMultisampleState = &multisample;
-    pipeline_info.pColorBlendState = &color_state;
-    pipeline_info.layout = ctx->pipeline_layout;
-    pipeline_info.renderPass = res->render_pass;
+    VkGraphicsPipelineCreateInfo pipeline_info = {.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
+                                                   .stageCount = ARRAY_LENGTH(shader_stages),
+                                                   .pStages = shader_stages,
+                                                   .pVertexInputState = &vertex_input,
+                                                   .pViewportState = &viewport_state,
+                                                   .pMultisampleState = &multisample,
+                                                   .pColorBlendState = &color_state,
+                                                   .layout = ctx->pipeline_layout,
+                                                   .renderPass = res->render_pass};
 
     pipeline_info.pInputAssemblyState = &input_assembly_tri;
     pipeline_info.pRasterizationState = &raster_solid;
@@ -824,22 +806,20 @@ void swapchain_create(SwapchainContext *ctx,
     for (uint32_t i = 0; i < image_count; ++i) {
         VkImageView attachments_views[] = {res->image_views[i], res->depth_view};
 
-        VkFramebufferCreateInfo framebuffer_info = {0};
-        framebuffer_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-        framebuffer_info.renderPass = res->render_pass;
-        framebuffer_info.attachmentCount = ARRAY_LENGTH(attachments_views);
-        framebuffer_info.pAttachments = attachments_views;
-        framebuffer_info.width = extent.width;
-        framebuffer_info.height = extent.height;
-        framebuffer_info.layers = 1;
+        VkFramebufferCreateInfo framebuffer_info = {.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+                                                     .renderPass = res->render_pass,
+                                                     .attachmentCount = ARRAY_LENGTH(attachments_views),
+                                                     .pAttachments = attachments_views,
+                                                     .width = extent.width,
+                                                     .height = extent.height,
+                                                     .layers = 1};
 
         VK_CHECK(vkCreateFramebuffer(device, &framebuffer_info, NULL, &res->framebuffers[i]));
     }
 
     /* Descriptors: only sampler array */
-    VkDescriptorPoolSize pool_size = {0};
-    pool_size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_size.descriptorCount = image_count * ctx->texture_count * 2;
+    VkDescriptorPoolSize pool_size = {.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                      .descriptorCount = image_count * ctx->texture_count * 2};
 
     VkDescriptorPoolCreateInfo pool_info = {.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
                                             .poolSizeCount = 1,
@@ -881,11 +861,10 @@ void swapchain_create(SwapchainContext *ctx,
             highlight_images[HIGHLIGHT_TEXTURE_INDEX].sampler = ctx->black_texture->sampler;
         }
 
-        VkWriteDescriptorSet write = {0};
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstBinding = 0;
-        write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-        write.descriptorCount = ctx->texture_count;
+        VkWriteDescriptorSet write = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+                                      .dstBinding = 0,
+                                      .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                      .descriptorCount = ctx->texture_count};
 
         write.dstSet = res->descriptor_sets_normal[i];
         write.pImageInfo = normal_images;
@@ -898,11 +877,10 @@ void swapchain_create(SwapchainContext *ctx,
 
     res->command_buffers = malloc(sizeof(VkCommandBuffer) * image_count);
 
-    VkCommandBufferAllocateInfo command_alloc = {0};
-    command_alloc.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    command_alloc.commandPool = ctx->command_pool;
-    command_alloc.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    command_alloc.commandBufferCount = image_count;
+    VkCommandBufferAllocateInfo command_alloc = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                                                 .commandPool = ctx->command_pool,
+                                                 .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                                                 .commandBufferCount = image_count};
 
     VK_CHECK(vkAllocateCommandBuffers(device, &command_alloc, res->command_buffers));
 }
