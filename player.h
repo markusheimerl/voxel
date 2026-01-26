@@ -16,7 +16,7 @@
 #define INVENTORY_ROWS 3
 #define INVENTORY_SIZE (INVENTORY_COLS * INVENTORY_ROWS)
 
-typedef struct {
+typedef struct Player {
     Vec3 position;    /* feet center */
     float velocity_y;
     bool on_ground;

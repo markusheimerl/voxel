@@ -5,80 +5,31 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <vulkan/vulkan.h>
-#include <png.h>
-
 #include "math.h"
 #include "world.h"
 
-/* -------------------------------------------------------------------------- */
-/* Vulkan Error Helpers                                                       */
-/* -------------------------------------------------------------------------- */
-
 #define ARRAY_LENGTH(a) (sizeof(a) / sizeof((a)[0]))
 
-#define VK_CHECK(call)                                                            \
-    do {                                                                          \
-        VkResult vk_check_result__ = (call);                                      \
-        if (vk_check_result__ != VK_SUCCESS) {                                    \
-            fprintf(stderr, "%s failed: %s\n", #call, vk_result_to_string(vk_check_result__)); \
-            exit(EXIT_FAILURE);                                                   \
-        }                                                                         \
-    } while (0)
+typedef struct VoxelRenderer VoxelRenderer;
+typedef struct Player Player;
+typedef struct Camera Camera;
 
-const char *vk_result_to_string(VkResult result);
+void die(const char *message);
 
-/* -------------------------------------------------------------------------- */
-/* Vulkan Buffer / Image Helpers                                              */
-/* -------------------------------------------------------------------------- */
-void create_buffer(VkDevice device,
-                   VkPhysicalDevice physical_device,
-                   VkDeviceSize size,
-                   VkBufferUsageFlags usage,
-                   VkMemoryPropertyFlags properties,
-                   VkBuffer *buffer,
-                   VkDeviceMemory *memory);
-
-/* -------------------------------------------------------------------------- */
-/* Texture Handling                                                           */
-/* -------------------------------------------------------------------------- */
-
-typedef struct {
-    VkImage image;
-    VkDeviceMemory memory;
-    VkImageView view;
-    VkSampler sampler;
-    uint32_t width;
-    uint32_t height;
-} Texture;
-
-typedef struct {
-    uint8_t *pixels;
-    uint32_t width;
-    uint32_t height;
-} ImageData;
-
-void texture_create_from_file(VkDevice device,
-                              VkPhysicalDevice physical_device,
-                              VkCommandPool command_pool,
-                              VkQueue graphics_queue,
-                              const char *filename,
-                              Texture *texture);
-
-void texture_create_solid(VkDevice device,
-                          VkPhysicalDevice physical_device,
-                          VkCommandPool command_pool,
-                          VkQueue graphics_queue,
-                          uint8_t r, uint8_t g, uint8_t b, uint8_t a,
-                          Texture *texture);
-
-void texture_destroy(VkDevice device, Texture *texture);
-
-/* -------------------------------------------------------------------------- */
-/* Shader Helpers                                                             */
-/* -------------------------------------------------------------------------- */
-
-VkShaderModule create_shader_module(VkDevice device, const char *filepath);
+VoxelRenderer *voxel_renderer_create(void *display,
+                                     unsigned long window,
+                                     uint32_t framebuffer_width,
+                                     uint32_t framebuffer_height);
+void voxel_renderer_destroy(VoxelRenderer *renderer);
+void voxel_renderer_request_resize(VoxelRenderer *renderer,
+                                   uint32_t framebuffer_width,
+                                   uint32_t framebuffer_height);
+bool voxel_renderer_draw_frame(VoxelRenderer *renderer,
+                               World *world,
+                               const Player *player,
+                               Camera *camera,
+                               bool highlight,
+                               IVec3 highlight_cell);
 
 /* -------------------------------------------------------------------------- */
 /* Vertex Formats                                                             */
@@ -163,65 +114,5 @@ static const uint16_t EDGE_INDICES[] = {
     0, 4,  1, 5,  2, 6,  3, 7  /* Connecting edges */
 };
 
-
-/* -------------------------------------------------------------------------- */
-/* Vulkan Swapchain Resources                                                 */
-/* -------------------------------------------------------------------------- */
-
-typedef struct {
-    VkSwapchainKHR swapchain;
-    VkImage *images;
-    VkImageView *image_views;
-    VkFramebuffer *framebuffers;
-    VkRenderPass render_pass;
-    VkPipeline pipeline_solid;
-    VkPipeline pipeline_wireframe;
-    VkPipeline pipeline_crosshair;
-    VkPipeline pipeline_overlay;
-
-    VkDescriptorPool descriptor_pool;
-    VkDescriptorSet *descriptor_sets_normal;
-    VkDescriptorSet *descriptor_sets_highlight;
-
-    VkCommandBuffer *command_buffers;
-
-    VkImage depth_image;
-    VkDeviceMemory depth_memory;
-    VkImageView depth_view;
-
-    uint32_t image_count;
-    VkExtent2D extent;
-    VkFormat format;
-} SwapchainResources;
-
-void swapchain_resources_reset(SwapchainResources *res);
-
-void swapchain_destroy(VkDevice device,
-                       VkCommandPool command_pool,
-                       SwapchainResources *res);
-
-/* -------------------------------------------------------------------------- */
-/* Swapchain creation                                                         */
-/* -------------------------------------------------------------------------- */
-
-typedef struct {
-    VkDevice device;
-    VkPhysicalDevice physical_device;
-    VkSurfaceKHR surface;
-    VkQueue graphics_queue;
-    VkCommandPool command_pool;
-    VkDescriptorSetLayout descriptor_set_layout;
-    VkPipelineLayout pipeline_layout;
-    VkShaderModule vert_shader;
-    VkShaderModule frag_shader;
-    const Texture *textures;
-    uint32_t texture_count;
-    const Texture *black_texture;
-} SwapchainContext;
-
-void swapchain_create(SwapchainContext *ctx,
-                      SwapchainResources *res,
-                      uint32_t framebuffer_width,
-                      uint32_t framebuffer_height);
 
 #endif /* VOXEL_H */
