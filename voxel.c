@@ -596,6 +596,25 @@ static void create_depth_resources(VkDevice device,
     create_image_view(device, *image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, view);
 }
 
+static VkPipelineRasterizationStateCreateInfo make_raster_state(VkPolygonMode poly, VkCullModeFlags cull) {
+    return (VkPipelineRasterizationStateCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .polygonMode = poly,
+        .cullMode = cull,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .lineWidth = 3.0f
+    };
+}
+
+static VkPipelineDepthStencilStateCreateInfo make_depth_state(VkBool32 test, VkBool32 write, VkCompareOp op) {
+    return (VkPipelineDepthStencilStateCreateInfo){
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = test,
+        .depthWriteEnable = write,
+        .depthCompareOp = op
+    };
+}
+
 /* -------------------------------------------------------------------------- */
 /* Swapchain creation                                                         */
 /* -------------------------------------------------------------------------- */
@@ -671,39 +690,24 @@ void swapchain_create(SwapchainContext *ctx,
     create_depth_resources(device, physical_device, extent,
                            &res->depth_image, &res->depth_memory, &res->depth_view);
 
-    VkAttachmentDescription attachments[2] = {0};
+    VkAttachmentDescription attachments[2] = {
+        {.format = surface_format.format, .samples = VK_SAMPLE_COUNT_1_BIT,
+         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+         .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE, .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED, .finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR},
+        {.format = VK_FORMAT_D32_SFLOAT, .samples = VK_SAMPLE_COUNT_1_BIT,
+         .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR, .storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+         .stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE, .stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+         .initialLayout = VK_IMAGE_LAYOUT_UNDEFINED, .finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL}
+    };
 
-    attachments[0].format = surface_format.format;
-    attachments[0].samples = VK_SAMPLE_COUNT_1_BIT;
-    attachments[0].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[0].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    attachments[0].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments[0].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    VkAttachmentReference color_ref = {.attachment = 0, .layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
+    VkAttachmentReference depth_ref = {.attachment = 1, .layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL};
 
-    attachments[1].format = VK_FORMAT_D32_SFLOAT;
-    attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
-    attachments[1].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    attachments[1].storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[1].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    attachments[1].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    attachments[1].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    attachments[1].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference color_ref = {0};
-    color_ref.attachment = 0;
-    color_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkAttachmentReference depth_ref = {0};
-    depth_ref.attachment = 1;
-    depth_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-    VkSubpassDescription subpass = {0};
-    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &color_ref;
-    subpass.pDepthStencilAttachment = &depth_ref;
+    VkSubpassDescription subpass = {.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                    .colorAttachmentCount = 1,
+                                    .pColorAttachments = &color_ref,
+                                    .pDepthStencilAttachment = &depth_ref};
 
     VkSubpassDependency dependency = {0};
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
@@ -726,47 +730,25 @@ void swapchain_create(SwapchainContext *ctx,
 
     VK_CHECK(vkCreateRenderPass(device, &render_pass_info, NULL, &res->render_pass));
 
-    VkPipelineShaderStageCreateInfo shader_stages[2] = {0};
-    shader_stages[0].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    shader_stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    shader_stages[0].module = ctx->vert_shader;
-    shader_stages[0].pName = "main";
-
-    shader_stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    shader_stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    shader_stages[1].module = ctx->frag_shader;
-    shader_stages[1].pName = "main";
+    VkPipelineShaderStageCreateInfo shader_stages[2] = {
+        {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+         .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = ctx->vert_shader, .pName = "main"},
+        {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+         .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = ctx->frag_shader, .pName = "main"}
+    };
 
     /* Vertex binding 0: per-vertex; binding 1: per-instance */
-    VkVertexInputBindingDescription bindings[2] = {0};
-    bindings[0].binding = 0;
-    bindings[0].stride = sizeof(Vertex);
-    bindings[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+    VkVertexInputBindingDescription bindings[2] = {
+        {.binding = 0, .stride = sizeof(Vertex), .inputRate = VK_VERTEX_INPUT_RATE_VERTEX},
+        {.binding = 1, .stride = sizeof(InstanceData), .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE}
+    };
 
-    bindings[1].binding = 1;
-    bindings[1].stride = sizeof(InstanceData);
-    bindings[1].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
-
-    VkVertexInputAttributeDescription attributes[4] = {0};
-    attributes[0].binding = 0;
-    attributes[0].location = 0;
-    attributes[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributes[0].offset = offsetof(Vertex, pos);
-
-    attributes[1].binding = 0;
-    attributes[1].location = 1;
-    attributes[1].format = VK_FORMAT_R32G32_SFLOAT;
-    attributes[1].offset = offsetof(Vertex, uv);
-
-    attributes[2].binding = 1;
-    attributes[2].location = 2;
-    attributes[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-    attributes[2].offset = offsetof(InstanceData, x);
-
-    attributes[3].binding = 1;
-    attributes[3].location = 3;
-    attributes[3].format = VK_FORMAT_R32_UINT;
-    attributes[3].offset = offsetof(InstanceData, type);
+    VkVertexInputAttributeDescription attributes[4] = {
+        {.binding = 0, .location = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex, pos)},
+        {.binding = 0, .location = 1, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, uv)},
+        {.binding = 1, .location = 2, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(InstanceData, x)},
+        {.binding = 1, .location = 3, .format = VK_FORMAT_R32_UINT, .offset = offsetof(InstanceData, type)}
+    };
 
     VkPipelineVertexInputStateCreateInfo vertex_input = {0};
     vertex_input.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -797,43 +779,20 @@ void swapchain_create(SwapchainContext *ctx,
     viewport_state.scissorCount = 1;
     viewport_state.pScissors = &scissor;
 
-    VkPipelineRasterizationStateCreateInfo raster_solid = {0};
-    raster_solid.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-    raster_solid.polygonMode = VK_POLYGON_MODE_FILL;
-    raster_solid.cullMode = VK_CULL_MODE_BACK_BIT;
-    raster_solid.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    raster_solid.lineWidth = 3.0f;
-
-    VkPipelineRasterizationStateCreateInfo raster_wire = raster_solid;
-    raster_wire.cullMode = VK_CULL_MODE_NONE;
-
-    VkPipelineRasterizationStateCreateInfo raster_cross = raster_wire;
+    VkPipelineRasterizationStateCreateInfo raster_solid = make_raster_state(VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT);
+    VkPipelineRasterizationStateCreateInfo raster_wire = make_raster_state(VK_POLYGON_MODE_FILL, VK_CULL_MODE_NONE);
 
     VkPipelineMultisampleStateCreateInfo multisample = {0};
     multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
     multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
-    VkPipelineDepthStencilStateCreateInfo depth_solid = {0};
-    depth_solid.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_solid.depthTestEnable = VK_TRUE;
-    depth_solid.depthWriteEnable = VK_TRUE;
-    depth_solid.depthCompareOp = VK_COMPARE_OP_LESS;
-
-    VkPipelineDepthStencilStateCreateInfo depth_wire = depth_solid;
-    depth_wire.depthWriteEnable = VK_FALSE;
-    depth_wire.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
-
-    VkPipelineDepthStencilStateCreateInfo depth_cross = {0};
-    depth_cross.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-    depth_cross.depthTestEnable = VK_FALSE;
-    depth_cross.depthWriteEnable = VK_FALSE;
-    depth_cross.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+    VkPipelineDepthStencilStateCreateInfo depth_solid = make_depth_state(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
+    VkPipelineDepthStencilStateCreateInfo depth_wire = make_depth_state(VK_TRUE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
+    VkPipelineDepthStencilStateCreateInfo depth_cross = make_depth_state(VK_FALSE, VK_FALSE, VK_COMPARE_OP_ALWAYS);
 
     VkPipelineColorBlendAttachmentState color_blend = {0};
-    color_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT |
-                                 VK_COLOR_COMPONENT_G_BIT |
-                                 VK_COLOR_COMPONENT_B_BIT |
-                                 VK_COLOR_COMPONENT_A_BIT;
+    color_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT |
+                                 VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 
     VkPipelineColorBlendStateCreateInfo color_state = {0};
     color_state.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -862,7 +821,7 @@ void swapchain_create(SwapchainContext *ctx,
     pipeline_info.pDepthStencilState = &depth_wire;
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &res->pipeline_wireframe));
 
-    pipeline_info.pRasterizationState = &raster_cross;
+    pipeline_info.pRasterizationState = &raster_wire;
     pipeline_info.pDepthStencilState = &depth_cross;
     VK_CHECK(vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, NULL, &res->pipeline_crosshair));
 

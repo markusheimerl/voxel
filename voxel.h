@@ -52,6 +52,14 @@ void create_buffer(VkDevice device,
 
 void upload_buffer_data(VkDevice device, VkDeviceMemory memory, const void *data, size_t size);
 
+#define CREATE_BUFFER_WITH_DATA(dev, pdev, data, usage, buf, mem)                \
+    do {                                                                          \
+        create_buffer((dev), (pdev), sizeof(data), (usage),                       \
+                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, \
+                     (buf), (mem));                                               \
+        upload_buffer_data((dev), *(mem), (data), sizeof(data));                 \
+    } while (0)
+
 /* -------------------------------------------------------------------------- */
 /* Texture Handling                                                           */
 /* -------------------------------------------------------------------------- */

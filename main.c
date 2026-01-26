@@ -216,35 +216,27 @@ int main(void) {
 
     VkBuffer block_vertex_buffer;
     VkDeviceMemory block_vertex_memory;
-    create_buffer(device, physical_device, sizeof(BLOCK_VERTICES),
-                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  &block_vertex_buffer, &block_vertex_memory);
-    upload_buffer_data(device, block_vertex_memory, BLOCK_VERTICES, sizeof(BLOCK_VERTICES));
+    CREATE_BUFFER_WITH_DATA(device, physical_device, BLOCK_VERTICES,
+                           VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                           &block_vertex_buffer, &block_vertex_memory);
 
     VkBuffer block_index_buffer;
     VkDeviceMemory block_index_memory;
-    create_buffer(device, physical_device, sizeof(BLOCK_INDICES),
-                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  &block_index_buffer, &block_index_memory);
-    upload_buffer_data(device, block_index_memory, BLOCK_INDICES, sizeof(BLOCK_INDICES));
+    CREATE_BUFFER_WITH_DATA(device, physical_device, BLOCK_INDICES,
+                           VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                           &block_index_buffer, &block_index_memory);
 
     VkBuffer edge_vertex_buffer;
     VkDeviceMemory edge_vertex_memory;
-    create_buffer(device, physical_device, sizeof(EDGE_VERTICES),
-                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  &edge_vertex_buffer, &edge_vertex_memory);
-    upload_buffer_data(device, edge_vertex_memory, EDGE_VERTICES, sizeof(EDGE_VERTICES));
+    CREATE_BUFFER_WITH_DATA(device, physical_device, EDGE_VERTICES,
+                           VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                           &edge_vertex_buffer, &edge_vertex_memory);
 
     VkBuffer edge_index_buffer;
     VkDeviceMemory edge_index_memory;
-    create_buffer(device, physical_device, sizeof(EDGE_INDICES),
-                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  &edge_index_buffer, &edge_index_memory);
-    upload_buffer_data(device, edge_index_memory, EDGE_INDICES, sizeof(EDGE_INDICES));
+    CREATE_BUFFER_WITH_DATA(device, physical_device, EDGE_INDICES,
+                           VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                           &edge_index_buffer, &edge_index_memory);
 
     /* Crosshair vertices (in clip space, updated on resize to keep aspect) */
     VkBuffer crosshair_vertex_buffer;
