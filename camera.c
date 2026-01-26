@@ -1,4 +1,5 @@
 #include "camera.h"
+#include "player.h"
 #include <math.h>
 
 /* -------------------------------------------------------------------------- */
@@ -43,4 +44,9 @@ void camera_process_mouse(Camera *cam, float x_offset, float y_offset) {
 Mat4 camera_view_matrix(Camera *cam) {
     Vec3 target = vec3_add(cam->position, cam->front);
     return mat4_look_at(cam->position, target, cam->up);
+}
+
+void camera_follow_player(Camera *cam, const Player *player) {
+    if (!cam || !player) return;
+    cam->position = vec3_add(player->position, vec3(0.0f, player_eye_height(), 0.0f));
 }

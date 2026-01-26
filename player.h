@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "camera.h"
 #include "math.h"
 #include "world.h"
 #include "voxel.h"
@@ -25,6 +26,27 @@ typedef struct Player {
     uint8_t inventory[INVENTORY_SIZE];
     uint8_t inventory_counts[INVENTORY_SIZE];
 } Player;
+
+void player_init(Player *player, Vec3 spawn_position);
+float player_eye_height(void);
+void player_compute_movement(const Player *player,
+                             const Camera *camera,
+                             const bool *keys,
+                             bool movement_enabled,
+                             float delta_time,
+                             Vec3 *out_move_delta,
+                             bool *out_wants_jump);
+void player_apply_physics(Player *player,
+                          World *world,
+                          float delta_time,
+                          Vec3 move_delta,
+                          bool wants_jump);
+void player_handle_block_interaction(Player *player,
+                                     World *world,
+                                     RayHit ray_hit,
+                                     bool left_click,
+                                     bool right_click,
+                                     bool interaction_enabled);
 
 void player_inventory_add(Player *player, uint8_t type);
 

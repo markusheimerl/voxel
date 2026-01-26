@@ -1,6 +1,4 @@
-#include <ctype.h>
 #include <errno.h>
-#include <math.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -17,15 +15,6 @@
 #include "world.h"
 #include "voxel.h"
 #include "player.h"
-
-static bool is_key_pressed(const bool *keys, KeySym sym) {
-    if (sym < 256) return keys[sym];
-    return false;
-}
-
-static bool is_key_pressed_ci(const bool *keys, char c) {
-    return is_key_pressed(keys, c) || is_key_pressed(keys, toupper((unsigned char)c));
-}
 
 /* -------------------------------------------------------------------------- */
 /* Main                                                                       */
@@ -95,19 +84,12 @@ int main(void) {
     /* Player / Camera                                                        */
     /* ---------------------------------------------------------------------- */
 
-    const float GRAVITY = 17.0f;
-    const float JUMP_HEIGHT = 1.2f;
-    const float JUMP_VELOCITY = sqrtf(2.0f * GRAVITY * JUMP_HEIGHT);
-    const float EYE_HEIGHT = 1.6f;
-
-    Player player = {0};
-    player.position = world.spawn_position;
-    player.inventory_open = false;
-    player.selected_slot = 0;
+    Player player;
+    player_init(&player, world.spawn_position);
 
     Camera camera;
     camera_init(&camera);
-    camera.position = vec3_add(player.position, vec3(0.0f, EYE_HEIGHT, 0.0f));
+    camera_follow_player(&camera, &player);
 
     world_update_chunks(&world, player.position);
 
@@ -284,78 +266,27 @@ int main(void) {
         const float MAX_DELTA_TIME = 0.1f;
         if (delta_time > MAX_DELTA_TIME) delta_time = MAX_DELTA_TIME;
 
-        Vec3 move_delta = vec3(0.0f, 0.0f, 0.0f);
-        bool wants_jump = false;
+        Vec3 move_delta;
+        bool wants_jump;
+        player_compute_movement(&player,
+                                &camera,
+                                keys,
+                                mouse_captured && !player.inventory_open,
+                                delta_time,
+                                &move_delta,
+                                &wants_jump);
 
-        if (mouse_captured && !player.inventory_open) {
-            Vec3 forward = camera.front;
-            forward.y = 0.0f;
-            forward = vec3_normalize(forward);
-
-            Vec3 right = camera.right;
-            right.y = 0.0f;
-            right = vec3_normalize(right);
-
-            Vec3 movement_dir = vec3(0.0f, 0.0f, 0.0f);
-            if (is_key_pressed_ci(keys, 'w')) movement_dir = vec3_add(movement_dir, forward);
-            if (is_key_pressed_ci(keys, 's')) movement_dir = vec3_sub(movement_dir, forward);
-            if (is_key_pressed_ci(keys, 'a')) movement_dir = vec3_sub(movement_dir, right);
-            if (is_key_pressed_ci(keys, 'd')) movement_dir = vec3_add(movement_dir, right);
-
-            if (vec3_length(movement_dir) > 0.0f) movement_dir = vec3_normalize(movement_dir);
-
-            move_delta = vec3_scale(movement_dir, camera.movement_speed * delta_time);
-            wants_jump = is_key_pressed(keys, ' ') || is_key_pressed(keys, XK_space);
-        }
-
-        if (wants_jump && player.on_ground) {
-            player.velocity_y = JUMP_VELOCITY;
-            player.on_ground = false;
-        }
-
-        if (!player.on_ground) player.velocity_y -= GRAVITY * delta_time;
-        else player.velocity_y = 0.0f;
-
-        player.position.x += move_delta.x;
-        resolve_collision_axis(&world, &player.position, move_delta.x, 0);
-
-        player.position.z += move_delta.z;
-        resolve_collision_axis(&world, &player.position, move_delta.z, 2);
-
-        player.position.y += player.velocity_y * delta_time;
-        resolve_collision_y(&world, &player.position, &player.velocity_y, &player.on_ground);
-
-        camera.position = vec3_add(player.position, vec3(0.0f, EYE_HEIGHT, 0.0f));
+        player_apply_physics(&player, &world, delta_time, move_delta, wants_jump);
+        camera_follow_player(&camera, &player);
 
         RayHit ray_hit = raycast_blocks(&world, camera.position, camera.front, 6.0f);
 
-        if (mouse_captured && !player.inventory_open && (left_click || right_click)) {
-            if (ray_hit.hit) {
-                if (left_click) {
-                    world_remove_block(&world, ray_hit.cell);
-                    player_inventory_add(&player, ray_hit.type);
-                }
-
-                if (right_click) {
-                    if (!(ray_hit.normal.x == 0 && ray_hit.normal.y == 0 && ray_hit.normal.z == 0)) {
-                        IVec3 place = ivec3_add(ray_hit.cell, ray_hit.normal);
-                        if (!world_block_exists(&world, place) && !block_overlaps_player(&player, place)) {
-                            uint8_t slot = player.selected_slot;
-                            if (slot < 9 && player.inventory_counts[slot] > 0) {
-                                uint8_t place_type = player.inventory[slot];
-                                world_add_block(&world, place, place_type);
-                                if (player.inventory_counts[slot] > 0) {
-                                    player.inventory_counts[slot]--;
-                                    if (player.inventory_counts[slot] == 0) {
-                                        player.inventory[slot] = 0;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        player_handle_block_interaction(&player,
+                                        &world,
+                                        ray_hit,
+                                        left_click,
+                                        right_click,
+                                        mouse_captured && !player.inventory_open);
 
         /* Periodic autosave (single-file) */
         double since_autosave =
