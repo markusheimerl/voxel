@@ -27,6 +27,17 @@ typedef struct Player {
     uint8_t inventory_counts[INVENTORY_SIZE];
 } Player;
 
+/* -------------------------------------------------------------------------- */
+/* Raycast                                                                    */
+/* -------------------------------------------------------------------------- */
+
+typedef struct {
+    bool hit;
+    IVec3 cell;
+    IVec3 normal;
+    uint8_t type;
+} RayHit;
+
 void player_init(Player *player, Vec3 spawn_position);
 float player_eye_height(void);
 void player_compute_movement(const Player *player,
@@ -49,17 +60,6 @@ void player_handle_block_interaction(Player *player,
                                      bool interaction_enabled);
 
 void player_inventory_add(Player *player, uint8_t type);
-
-/* -------------------------------------------------------------------------- */
-/* Raycast                                                                    */
-/* -------------------------------------------------------------------------- */
-
-typedef struct {
-    bool hit;
-    IVec3 cell;
-    IVec3 normal;
-    uint8_t type;
-} RayHit;
 
 RayHit raycast_blocks(World *world, Vec3 origin, Vec3 direction, float max_distance);
 

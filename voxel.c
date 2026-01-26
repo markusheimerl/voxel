@@ -1,5 +1,4 @@
 #define VK_USE_PLATFORM_XLIB_KHR
-#include <X11/Xlib.h>
 #include <vulkan/vulkan.h>
 
 #include <math.h>
