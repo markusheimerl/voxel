@@ -1,3 +1,4 @@
+#include <ctype.h>
 #include <errno.h>
 #include <math.h>
 #include <png.h>
@@ -24,6 +25,10 @@
 static bool is_key_pressed(const bool *keys, KeySym sym) {
     if (sym < 256) return keys[sym];
     return false;
+}
+
+static bool is_key_pressed_ci(const bool *keys, char c) {
+    return is_key_pressed(keys, c) || is_key_pressed(keys, toupper((unsigned char)c));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -649,10 +654,10 @@ int main(void) {
             right = vec3_normalize(right);
 
             Vec3 movement_dir = vec3(0.0f, 0.0f, 0.0f);
-            if (is_key_pressed(keys, 'w') || is_key_pressed(keys, 'W')) movement_dir = vec3_add(movement_dir, forward);
-            if (is_key_pressed(keys, 's') || is_key_pressed(keys, 'S')) movement_dir = vec3_sub(movement_dir, forward);
-            if (is_key_pressed(keys, 'a') || is_key_pressed(keys, 'A')) movement_dir = vec3_sub(movement_dir, right);
-            if (is_key_pressed(keys, 'd') || is_key_pressed(keys, 'D')) movement_dir = vec3_add(movement_dir, right);
+            if (is_key_pressed_ci(keys, 'w')) movement_dir = vec3_add(movement_dir, forward);
+            if (is_key_pressed_ci(keys, 's')) movement_dir = vec3_sub(movement_dir, forward);
+            if (is_key_pressed_ci(keys, 'a')) movement_dir = vec3_sub(movement_dir, right);
+            if (is_key_pressed_ci(keys, 'd')) movement_dir = vec3_add(movement_dir, right);
 
             if (vec3_length(movement_dir) > 0.0f) movement_dir = vec3_normalize(movement_dir);
 

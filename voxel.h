@@ -28,6 +28,14 @@
         }                                                                         \
     } while (0)
 
+#define VK_DESTROY(device, type, handle)                                          \
+    do {                                                                          \
+        if ((handle) != VK_NULL_HANDLE) {                                         \
+            vkDestroy##type((device), (handle), NULL);                            \
+            (handle) = VK_NULL_HANDLE;                                            \
+        }                                                                         \
+    } while (0)
+
 const char *vk_result_to_string(VkResult result);
 void die(const char *message);
 

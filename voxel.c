@@ -96,6 +96,19 @@ void upload_buffer_data(VkDevice device, VkDeviceMemory memory, const void *data
     vkUnmapMemory(device, memory);
 }
 
+static void create_image_view(VkDevice device, VkImage image, VkFormat format,
+                               VkImageAspectFlags aspect_mask, VkImageView *view) {
+    VkImageViewCreateInfo view_info = {0};
+    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    view_info.image = image;
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = format;
+    view_info.subresourceRange.aspectMask = aspect_mask;
+    view_info.subresourceRange.levelCount = 1;
+    view_info.subresourceRange.layerCount = 1;
+    VK_CHECK(vkCreateImageView(device, &view_info, NULL, view));
+}
+
 static void create_image(VkDevice device,
                          VkPhysicalDevice physical_device,
                          uint32_t width,
@@ -409,16 +422,8 @@ static void texture_create_from_pixels(VkDevice device,
     vkDestroyBuffer(device, staging_buffer, NULL);
     vkFreeMemory(device, staging_memory, NULL);
 
-    VkImageViewCreateInfo view_info = {0};
-    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_info.image = texture->image;
-    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = VK_FORMAT_R8G8B8A8_SRGB;
-    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    view_info.subresourceRange.levelCount = 1;
-    view_info.subresourceRange.layerCount = 1;
-
-    VK_CHECK(vkCreateImageView(device, &view_info, NULL, &texture->view));
+    create_image_view(device, texture->image, VK_FORMAT_R8G8B8A8_SRGB,
+                      VK_IMAGE_ASPECT_COLOR_BIT, &texture->view);
 
     texture->sampler = create_nearest_sampler(device);
     texture->width = width;
@@ -522,10 +527,7 @@ void swapchain_destroy(VkDevice device,
         res->command_buffers = NULL;
     }
 
-    if (res->descriptor_pool != VK_NULL_HANDLE) {
-        vkDestroyDescriptorPool(device, res->descriptor_pool, NULL);
-        res->descriptor_pool = VK_NULL_HANDLE;
-    }
+    VK_DESTROY(device, DescriptorPool, res->descriptor_pool);
 
     if (res->framebuffers) {
         for (uint32_t i = 0; i < res->image_count; ++i) {
@@ -535,36 +537,15 @@ void swapchain_destroy(VkDevice device,
         res->framebuffers = NULL;
     }
 
-    if (res->pipeline_crosshair != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, res->pipeline_crosshair, NULL);
-        res->pipeline_crosshair = VK_NULL_HANDLE;
-    }
-    if (res->pipeline_overlay != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, res->pipeline_overlay, NULL);
-        res->pipeline_overlay = VK_NULL_HANDLE;
-    }
-    if (res->pipeline_wireframe != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, res->pipeline_wireframe, NULL);
-        res->pipeline_wireframe = VK_NULL_HANDLE;
-    }
-    if (res->pipeline_solid != VK_NULL_HANDLE) {
-        vkDestroyPipeline(device, res->pipeline_solid, NULL);
-        res->pipeline_solid = VK_NULL_HANDLE;
-    }
+    VK_DESTROY(device, Pipeline, res->pipeline_crosshair);
+    VK_DESTROY(device, Pipeline, res->pipeline_overlay);
+    VK_DESTROY(device, Pipeline, res->pipeline_wireframe);
+    VK_DESTROY(device, Pipeline, res->pipeline_solid);
 
-    if (res->render_pass != VK_NULL_HANDLE) {
-        vkDestroyRenderPass(device, res->render_pass, NULL);
-        res->render_pass = VK_NULL_HANDLE;
-    }
+    VK_DESTROY(device, RenderPass, res->render_pass);
 
-    if (res->depth_view != VK_NULL_HANDLE) {
-        vkDestroyImageView(device, res->depth_view, NULL);
-        res->depth_view = VK_NULL_HANDLE;
-    }
-    if (res->depth_image != VK_NULL_HANDLE) {
-        vkDestroyImage(device, res->depth_image, NULL);
-        res->depth_image = VK_NULL_HANDLE;
-    }
+    VK_DESTROY(device, ImageView, res->depth_view);
+    VK_DESTROY(device, Image, res->depth_image);
     if (res->depth_memory != VK_NULL_HANDLE) {
         vkFreeMemory(device, res->depth_memory, NULL);
         res->depth_memory = VK_NULL_HANDLE;
@@ -581,10 +562,7 @@ void swapchain_destroy(VkDevice device,
     free(res->images);
     res->images = NULL;
 
-    if (res->swapchain != VK_NULL_HANDLE) {
-        vkDestroySwapchainKHR(device, res->swapchain, NULL);
-        res->swapchain = VK_NULL_HANDLE;
-    }
+    VK_DESTROY(device, SwapchainKHR, res->swapchain);
 
     free(res->descriptor_sets_normal);
     free(res->descriptor_sets_highlight);
@@ -615,16 +593,7 @@ static void create_depth_resources(VkDevice device,
                  image,
                  memory);
 
-    VkImageViewCreateInfo view_info = {0};
-    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_info.image = *image;
-    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = depth_format;
-    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-    view_info.subresourceRange.levelCount = 1;
-    view_info.subresourceRange.layerCount = 1;
-
-    VK_CHECK(vkCreateImageView(device, &view_info, NULL, view));
+    create_image_view(device, *image, depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, view);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -695,15 +664,8 @@ void swapchain_create(SwapchainContext *ctx,
 
     res->image_views = malloc(sizeof(VkImageView) * image_count);
     for (uint32_t i = 0; i < image_count; ++i) {
-        VkImageViewCreateInfo view_info = {0};
-        view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-        view_info.image = res->images[i];
-        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-        view_info.format = surface_format.format;
-        view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        view_info.subresourceRange.levelCount = 1;
-        view_info.subresourceRange.layerCount = 1;
-        VK_CHECK(vkCreateImageView(device, &view_info, NULL, &res->image_views[i]));
+        create_image_view(device, res->images[i], surface_format.format,
+                          VK_IMAGE_ASPECT_COLOR_BIT, &res->image_views[i]);
     }
 
     create_depth_resources(device, physical_device, extent,
