@@ -29,6 +29,7 @@ int main(void) {
     IOContext *io = io_create(window_width, window_height, window_title_game);
     void *display = io_get_display(io);
     unsigned long window = io_get_window(io);
+    io_get_window_size(io, &window_width, &window_height);
 
     /* ---------------------------------------------------------------------- */
     /* Renderer (Vulkan)                                                       */
