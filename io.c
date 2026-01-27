@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include <X11/Xlib.h>
+#include <X11/Xatom.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 
@@ -52,6 +53,28 @@ IOContext *io_create(uint32_t width, uint32_t height, const char *title) {
     io->wm_delete_window = XInternAtom(io->display, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(io->display, io->window, &io->wm_delete_window, 1);
     XMapWindow(io->display, io->window);
+
+    /* Wait for MapNotify before sending maximize request */
+    XEvent xev;
+    while (1) {
+        XNextEvent(io->display, &xev);
+        if (xev.type == MapNotify && xev.xmap.window == io->window) break;
+    }
+
+    Atom wm_state = XInternAtom(io->display, "_NET_WM_STATE", False);
+    Atom max_vert = XInternAtom(io->display, "_NET_WM_STATE_MAXIMIZED_VERT", False);
+    Atom max_horz = XInternAtom(io->display, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+    XEvent ev = {0};
+    ev.type = ClientMessage;
+    ev.xclient.window = io->window;
+    ev.xclient.message_type = wm_state;
+    ev.xclient.format = 32;
+    ev.xclient.data.l[0] = 1;
+    ev.xclient.data.l[1] = (long)max_horz;
+    ev.xclient.data.l[2] = (long)max_vert;
+    ev.xclient.data.l[3] = 1;
+    XSendEvent(io->display, root, False, SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+    XFlush(io->display);
 
     char empty_cursor_data[8] = {0};
     Pixmap blank = XCreateBitmapFromData(io->display, io->window, empty_cursor_data, 8, 8);
