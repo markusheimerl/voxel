@@ -47,7 +47,7 @@ typedef struct {
     } data;
 } IOEvent;
 
-IOContext *io_create(uint32_t width, uint32_t height, const char *title);
+IOContext *io_create(const char *title);
 void io_destroy(IOContext *io);
 
 void *io_get_display(IOContext *io);

@@ -27,7 +27,7 @@ static uint32_t io_keysym_to_key(KeySym sym) {
     return IO_KEY_UNKNOWN;
 }
 
-IOContext *io_create(uint32_t width, uint32_t height, const char *title) {
+IOContext *io_create(const char *title) {
     IOContext *io = calloc(1, sizeof(*io));
     if (!io) io_die("Failed to allocate IOContext");
 
@@ -39,7 +39,7 @@ IOContext *io_create(uint32_t width, uint32_t height, const char *title) {
 
     io->window = XCreateSimpleWindow(io->display, root,
                                      0, 0,
-                                     width, height,
+                                     800, 600,
                                      1,
                                      BlackPixel(io->display, io->screen),
                                      WhitePixel(io->display, io->screen));

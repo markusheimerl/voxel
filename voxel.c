@@ -18,17 +18,16 @@
 /* -------------------------------------------------------------------------- */
 
 int main(void) {
-    uint32_t window_width = 800;
-    uint32_t window_height = 600;
 
     /* ---------------------------------------------------------------------- */
     /* IO / Window                                                            */
     /* ---------------------------------------------------------------------- */
 
     const char *window_title_game = "Voxel Engine";
-    IOContext *io = io_create(window_width, window_height, window_title_game);
+    IOContext *io = io_create(window_title_game);
     void *display = io_get_display(io);
     unsigned long window = io_get_window(io);
+    uint32_t window_width, window_height;
     io_get_window_size(io, &window_width, &window_height);
 
     /* ---------------------------------------------------------------------- */
