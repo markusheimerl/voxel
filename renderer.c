@@ -143,22 +143,6 @@ struct Renderer {
 /* Vulkan Buffer / Image Helpers                                              */
 /* -------------------------------------------------------------------------- */
 
-static uint32_t find_memory_type(VkPhysicalDevice physical_device,
-                                 uint32_t type_filter,
-                                 VkMemoryPropertyFlags properties) {
-    VkPhysicalDeviceMemoryProperties memory_properties;
-    vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
-
-    for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
-        bool supported = (type_filter & (1 << i)) != 0;
-        bool matches = (memory_properties.memoryTypes[i].propertyFlags & properties) == properties;
-        if (supported && matches) return i;
-    }
-
-    die("Failed to find suitable memory type");
-    return 0;
-}
-
 void create_buffer(VkDevice device,
                     VkPhysicalDevice physical_device,
                     VkDeviceSize size,
@@ -176,11 +160,19 @@ void create_buffer(VkDevice device,
     VkMemoryRequirements requirements;
     vkGetBufferMemoryRequirements(device, *buffer, &requirements);
 
+    uint32_t memory_type_index = UINT32_MAX;
+    VkPhysicalDeviceMemoryProperties memory_properties;
+    vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
+    for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
+        bool supported = (requirements.memoryTypeBits & (1 << i)) != 0;
+        bool matches = (memory_properties.memoryTypes[i].propertyFlags & properties) == properties;
+        if (supported && matches) { memory_type_index = i; break; }
+    }
+    if (memory_type_index == UINT32_MAX) die("Failed to find suitable memory type");
+
     VkMemoryAllocateInfo alloc_info = {.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
                                        .allocationSize = requirements.size,
-                                       .memoryTypeIndex = find_memory_type(physical_device,
-                                                                           requirements.memoryTypeBits,
-                                                                           properties)};
+                                       .memoryTypeIndex = memory_type_index};
 
     VK_CHECK(vkAllocateMemory(device, &alloc_info, NULL, memory));
     VK_CHECK(vkBindBufferMemory(device, *buffer, *memory, 0));
@@ -233,9 +225,19 @@ static void create_image(VkDevice device,
     VkMemoryRequirements requirements;
     vkGetImageMemoryRequirements(device, *image, &requirements);
 
+    uint32_t memory_type_index = UINT32_MAX;
+    VkPhysicalDeviceMemoryProperties memory_properties;
+    vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
+    for (uint32_t i = 0; i < memory_properties.memoryTypeCount; ++i) {
+        bool supported = (requirements.memoryTypeBits & (1 << i)) != 0;
+        bool matches = (memory_properties.memoryTypes[i].propertyFlags & properties) == properties;
+        if (supported && matches) { memory_type_index = i; break; }
+    }
+    if (memory_type_index == UINT32_MAX) die("Failed to find suitable memory type");
+
     VkMemoryAllocateInfo alloc_info = {.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-                                       .allocationSize = requirements.size};
-    alloc_info.memoryTypeIndex = find_memory_type(physical_device, requirements.memoryTypeBits, properties);
+                                       .allocationSize = requirements.size,
+                                       .memoryTypeIndex = memory_type_index};
 
     VK_CHECK(vkAllocateMemory(device, &alloc_info, NULL, memory));
     VK_CHECK(vkBindImageMemory(device, *image, *memory, 0));
