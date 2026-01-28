@@ -21,15 +21,12 @@ Renderer *renderer_create(void *display,
                                      uint32_t framebuffer_width,
                                      uint32_t framebuffer_height);
 void renderer_destroy(Renderer *renderer);
-void renderer_request_resize(Renderer *renderer,
-                                   uint32_t framebuffer_width,
-                                   uint32_t framebuffer_height);
-bool renderer_draw_frame(Renderer *renderer,
-                               World *world,
-                               const Player *player,
-                               Camera *camera,
-                               bool highlight,
-                               IVec3 highlight_cell);
+void renderer_draw_frame(Renderer *renderer,
+                         World *world,
+                         const Player *player,
+                         Camera *camera,
+                         bool highlight,
+                         IVec3 highlight_cell);
 
 /* -------------------------------------------------------------------------- */
 /* Vertex Formats                                                             */

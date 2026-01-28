@@ -31,11 +31,10 @@ int main(void) {
     io_get_window_size(io, &window_width, &window_height);
 
     /* ---------------------------------------------------------------------- */
-    /* Renderer (Vulkan)                                                       */
+    /* Renderer                                                               */
     /* ---------------------------------------------------------------------- */
 
     Renderer *renderer = renderer_create(display, window, window_width, window_height);
-    bool swapchain_needs_recreate = false;
 
     /* ---------------------------------------------------------------------- */
     /* World Save + Voxel World                                                */
@@ -84,17 +83,6 @@ int main(void) {
     bool running = true;
 
     while (running) {
-        if (swapchain_needs_recreate) {
-            io_get_window_size(io, &window_width, &window_height);
-            if (window_width == 0 || window_height == 0) {
-                swapchain_needs_recreate = false;
-                continue;
-            }
-
-            renderer_request_resize(renderer, window_width, window_height);
-            swapchain_needs_recreate = false;
-        }
-
         world_update_chunks(&world, player.position);
 
         bool mouse_moved = false;
@@ -108,14 +96,6 @@ int main(void) {
             switch (event.type) {
             case IO_EVENT_QUIT:
                 running = false;
-                break;
-
-            case IO_EVENT_RESIZE:
-                if (event.data.resize.width != window_width ||
-                    event.data.resize.height != window_height)
-                {
-                    swapchain_needs_recreate = true;
-                }
                 break;
 
             case IO_EVENT_KEY_DOWN: {
@@ -247,7 +227,7 @@ int main(void) {
                                         right_click,
                                         mouse_captured && !player.inventory_open);
 
-        /* Periodic autosave (single-file) */
+        /* Periodic autosave */
         double since_autosave =
             (now.tv_sec - last_autosave.tv_sec) +
             (now.tv_nsec - last_autosave.tv_nsec) / 1000000000.0;
@@ -257,21 +237,18 @@ int main(void) {
             last_autosave = now;
         }
 
-        if (swapchain_needs_recreate) continue;
-
-        bool needs_recreate = renderer_draw_frame(renderer,
-                                                        &world,
-                                                        &player,
-                                                        &camera,
-                                                        ray_hit.hit,
-                                                        ray_hit.cell);
-        if (needs_recreate) swapchain_needs_recreate = true;
+        renderer_draw_frame(renderer,
+                            &world,
+                            &player,
+                            &camera,
+                            ray_hit.hit,
+                            ray_hit.cell);
     }
 
     /* ---------------------------------------------------------------------- */
     /* Cleanup                                                                 */
     /* ---------------------------------------------------------------------- */
-    /* Flush all chunks into the single save file */
+
     world_destroy(&world);
     world_save_destroy(&save);
 

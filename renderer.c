@@ -177,10 +177,6 @@ struct Renderer {
     VkSemaphore image_available;
     VkSemaphore render_finished;
     VkFence in_flight;
-
-    bool swapchain_needs_recreate;
-    uint32_t pending_width;
-    uint32_t pending_height;
 };
 
 /* -------------------------------------------------------------------------- */
@@ -1020,13 +1016,13 @@ void swapchain_create(Renderer *renderer,
 /* Renderer                                                                   */
 /* -------------------------------------------------------------------------- */
 
-static void renderer_recreate_swapchain(Renderer *renderer,
-                                        uint32_t framebuffer_width,
-                                        uint32_t framebuffer_height) {
-    if (framebuffer_width == 0 || framebuffer_height == 0) return;
+static void renderer_init_swapchain(Renderer *renderer,
+                                    uint32_t framebuffer_width,
+                                    uint32_t framebuffer_height) {
+    if (framebuffer_width == 0 || framebuffer_height == 0) {
+        die("Invalid framebuffer size for swapchain initialization");
+    }
 
-    vkDeviceWaitIdle(renderer->device);
-    swapchain_destroy(renderer);
     swapchain_create(renderer, framebuffer_width, framebuffer_height);
 
     const float crosshair_size = 0.03f;
@@ -1076,8 +1072,6 @@ Renderer *renderer_create(void *display,
 
     renderer->display = display;
     renderer->window = window;
-    renderer->pending_width = framebuffer_width;
-    renderer->pending_height = framebuffer_height;
 
     const char *instance_extensions[] = {
         VK_KHR_SURFACE_EXTENSION_NAME,
@@ -1300,8 +1294,7 @@ Renderer *renderer_create(void *display,
 
     swapchain_resources_reset(renderer);
 
-    renderer_recreate_swapchain(renderer, framebuffer_width, framebuffer_height);
-    renderer->swapchain_needs_recreate = false;
+    renderer_init_swapchain(renderer, framebuffer_width, framebuffer_height);
 
     return renderer;
 }
@@ -1373,30 +1366,13 @@ void renderer_destroy(Renderer *renderer) {
     free(renderer);
 }
 
-void renderer_request_resize(Renderer *renderer,
-                                   uint32_t framebuffer_width,
-                                   uint32_t framebuffer_height) {
+void renderer_draw_frame(Renderer *renderer,
+                         World *world,
+                         const Player *player,
+                         Camera *camera,
+                         bool highlight,
+                         IVec3 highlight_cell) {
     if (!renderer) return;
-    renderer->pending_width = framebuffer_width;
-    renderer->pending_height = framebuffer_height;
-    renderer->swapchain_needs_recreate = true;
-}
-
-bool renderer_draw_frame(Renderer *renderer,
-                               World *world,
-                               const Player *player,
-                               Camera *camera,
-                               bool highlight,
-                               IVec3 highlight_cell) {
-    if (!renderer) return false;
-
-    if (renderer->swapchain_needs_recreate) {
-        if (renderer->pending_width == 0 || renderer->pending_height == 0) {
-            return true;
-        }
-        renderer_recreate_swapchain(renderer, renderer->pending_width, renderer->pending_height);
-        renderer->swapchain_needs_recreate = false;
-    }
 
     VK_CHECK(vkWaitForFences(renderer->device, 1, &renderer->in_flight, VK_TRUE, UINT64_MAX));
     VK_CHECK(vkResetFences(renderer->device, 1, &renderer->in_flight));
@@ -1410,7 +1386,7 @@ bool renderer_draw_frame(Renderer *renderer,
                                              &image_index);
 
     if (acquire == VK_ERROR_OUT_OF_DATE_KHR) {
-        return true;
+        die("Swapchain out of date during image acquire");
     } else if (acquire != VK_SUCCESS && acquire != VK_SUBOPTIMAL_KHR) {
         die("Failed to acquire swapchain image");
     }
@@ -1768,11 +1744,9 @@ bool renderer_draw_frame(Renderer *renderer,
     present.pImageIndices = &image_index;
 
     VkResult present_result = vkQueuePresentKHR(renderer->graphics_queue, &present);
-    if (present_result == VK_ERROR_OUT_OF_DATE_KHR || present_result == VK_SUBOPTIMAL_KHR) {
-        return true;
-    } else if (present_result != VK_SUCCESS) {
+    if (present_result == VK_ERROR_OUT_OF_DATE_KHR) {
+        die("Swapchain out of date during present");
+    } else if (present_result != VK_SUCCESS && present_result != VK_SUBOPTIMAL_KHR) {
         die("Failed to present swapchain image");
     }
-
-    return false;
 }
