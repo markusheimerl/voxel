@@ -361,94 +361,6 @@ static void transition_image_layout(VkDevice device,
 /* Texture Handling                                                           */
 /* -------------------------------------------------------------------------- */
 
-static void texture_create_from_pixels(VkDevice device,
-                                       VkPhysicalDevice physical_device,
-                                       VkCommandPool command_pool,
-                                       VkQueue graphics_queue,
-                                       const uint8_t *pixels,
-                                       uint32_t width,
-                                       uint32_t height,
-                                       VkImage *image,
-                                       VkDeviceMemory *memory,
-                                       VkImageView *view,
-                                       VkSampler *sampler,
-                                       uint32_t *out_width,
-                                       uint32_t *out_height) {
-    VkDeviceSize image_size = (VkDeviceSize)width * (VkDeviceSize)height * 4;
-
-    VkBuffer staging_buffer;
-    VkDeviceMemory staging_memory;
-    create_buffer(device,
-                  physical_device,
-                  image_size,
-                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                  &staging_buffer,
-                  &staging_memory);
-
-    void *mapped = NULL;
-    VK_CHECK(vkMapMemory(device, staging_memory, 0, image_size, 0, &mapped));
-    memcpy(mapped, pixels, (size_t)image_size);
-    vkUnmapMemory(device, staging_memory);
-
-    create_image(device,
-                 physical_device,
-                 width,
-                 height,
-                 VK_FORMAT_R8G8B8A8_SRGB,
-                 VK_IMAGE_TILING_OPTIMAL,
-                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                 image,
-                 memory);
-
-    transition_image_layout(device, command_pool, graphics_queue,
-                            *image, VK_FORMAT_R8G8B8A8_SRGB,
-                            VK_IMAGE_LAYOUT_UNDEFINED,
-                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-
-    VkCommandBuffer copy_cmd = begin_single_use_commands(device, command_pool);
-    VkBufferImageCopy region = {.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                                .imageExtent = {width, height, 1}};
-    vkCmdCopyBufferToImage(copy_cmd,
-                           staging_buffer,
-                           *image,
-                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                           1,
-                           &region);
-    end_single_use_commands(device, command_pool, graphics_queue, copy_cmd);
-
-    transition_image_layout(device, command_pool, graphics_queue,
-                            *image, VK_FORMAT_R8G8B8A8_SRGB,
-                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-
-    vkDestroyBuffer(device, staging_buffer, NULL);
-    vkFreeMemory(device, staging_memory, NULL);
-
-    create_image_view(device, *image, VK_FORMAT_R8G8B8A8_SRGB,
-                      VK_IMAGE_ASPECT_COLOR_BIT, view);
-
-    VkSamplerCreateInfo sampler_info = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
-                                        .magFilter = VK_FILTER_NEAREST,
-                                        .minFilter = VK_FILTER_NEAREST,
-                                        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                                        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                                        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
-                                        .anisotropyEnable = VK_FALSE,
-                                        .maxAnisotropy = 1.0f,
-                                        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
-                                        .unnormalizedCoordinates = VK_FALSE,
-                                        .compareEnable = VK_FALSE,
-                                        .compareOp = VK_COMPARE_OP_ALWAYS,
-                                        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST};
-
-    VK_CHECK(vkCreateSampler(device, &sampler_info, NULL, sampler));
-
-    if (out_width) *out_width = width;
-    if (out_height) *out_height = height;
-}
-
 void texture_create(VkDevice device,
                     VkPhysicalDevice physical_device,
                     VkCommandPool command_pool,
@@ -525,9 +437,79 @@ void texture_create(VkDevice device,
     png_destroy_read_struct(&png, &info, NULL);
     fclose(fp);
 
-    texture_create_from_pixels(device, physical_device, command_pool, graphics_queue,
-                               pixels, (uint32_t)width, (uint32_t)height,
-                               image, memory, view, sampler, out_width, out_height);
+    VkDeviceSize image_size = (VkDeviceSize)width * (VkDeviceSize)height * 4;
+
+    VkBuffer staging_buffer;
+    VkDeviceMemory staging_memory;
+    create_buffer(device,
+                  physical_device,
+                  image_size,
+                  VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &staging_buffer,
+                  &staging_memory);
+
+    void *mapped = NULL;
+    VK_CHECK(vkMapMemory(device, staging_memory, 0, image_size, 0, &mapped));
+    memcpy(mapped, pixels, (size_t)image_size);
+    vkUnmapMemory(device, staging_memory);
+
+    create_image(device,
+                 physical_device,
+                 (uint32_t)width,
+                 (uint32_t)height,
+                 VK_FORMAT_R8G8B8A8_SRGB,
+                 VK_IMAGE_TILING_OPTIMAL,
+                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+                 image,
+                 memory);
+
+    transition_image_layout(device, command_pool, graphics_queue,
+                            *image, VK_FORMAT_R8G8B8A8_SRGB,
+                            VK_IMAGE_LAYOUT_UNDEFINED,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    VkCommandBuffer copy_cmd = begin_single_use_commands(device, command_pool);
+    VkBufferImageCopy region = {.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                                .imageExtent = {(uint32_t)width, (uint32_t)height, 1}};
+    vkCmdCopyBufferToImage(copy_cmd,
+                           staging_buffer,
+                           *image,
+                           VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                           1,
+                           &region);
+    end_single_use_commands(device, command_pool, graphics_queue, copy_cmd);
+
+    transition_image_layout(device, command_pool, graphics_queue,
+                            *image, VK_FORMAT_R8G8B8A8_SRGB,
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
+    vkDestroyBuffer(device, staging_buffer, NULL);
+    vkFreeMemory(device, staging_memory, NULL);
+
+    create_image_view(device, *image, VK_FORMAT_R8G8B8A8_SRGB,
+                      VK_IMAGE_ASPECT_COLOR_BIT, view);
+
+    VkSamplerCreateInfo sampler_info = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
+                                        .magFilter = VK_FILTER_NEAREST,
+                                        .minFilter = VK_FILTER_NEAREST,
+                                        .addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                        .addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                        .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT,
+                                        .anisotropyEnable = VK_FALSE,
+                                        .maxAnisotropy = 1.0f,
+                                        .borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK,
+                                        .unnormalizedCoordinates = VK_FALSE,
+                                        .compareEnable = VK_FALSE,
+                                        .compareOp = VK_COMPARE_OP_ALWAYS,
+                                        .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST};
+
+    VK_CHECK(vkCreateSampler(device, &sampler_info, NULL, sampler));
+
+    if (out_width) *out_width = (uint32_t)width;
+    if (out_height) *out_height = (uint32_t)height;
 
     free(pixels);
 }
