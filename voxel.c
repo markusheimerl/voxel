@@ -110,14 +110,19 @@ int main(void) {
                 } else if (key == 'E' || key == 'e') {
                     if (!was_down) {
                         player.inventory_open = !player.inventory_open;
+                        if (!player.inventory_open) {
+                            player_inventory_cancel_held(&player);
+                        }
                         if (player.inventory_open && mouse_captured) {
                             io_set_mouse_capture(io, false);
                             mouse_captured = false;
                             first_mouse = true;
+                            player.inventory_mouse_valid = false;
                         } else if (!player.inventory_open && !mouse_captured) {
                             io_set_mouse_capture(io, true);
                             mouse_captured = true;
                             first_mouse = true;
+                            player.inventory_mouse_valid = false;
                         }
                         io_set_window_title(io, window_title_game);
                     }
@@ -139,18 +144,32 @@ int main(void) {
                     mouse_y = (float)event.data.mouse_move.y;
                     mouse_moved = true;
                 }
+                if (player.inventory_open) {
+                    float ndc_x = ((float)event.data.mouse_move.x / (float)window_width) * 2.0f - 1.0f;
+                    float ndc_y = 1.0f - ((float)event.data.mouse_move.y / (float)window_height) * 2.0f;
+                    player.inventory_mouse_ndc_x = ndc_x;
+                    player.inventory_mouse_ndc_y = ndc_y;
+                    player.inventory_mouse_valid = true;
+                }
                 break;
 
             case IO_EVENT_MOUSE_BUTTON:
                 if (player.inventory_open) {
-                    if (event.data.mouse_button.button == IO_MOUSE_BUTTON_MIDDLE) {
+                    if (event.data.mouse_button.button == IO_MOUSE_BUTTON_LEFT ||
+                        event.data.mouse_button.button == IO_MOUSE_BUTTON_MIDDLE) {
                         float aspect = (float)window_height / (float)window_width;
                         int slot = player_inventory_slot_from_mouse(aspect,
                                                                      (float)event.data.mouse_button.x,
                                                                      (float)event.data.mouse_button.y,
                                                                      (float)window_width,
                                                                      (float)window_height);
-                        if (slot >= 0) player.selected_slot = (uint8_t)slot;
+                        if (slot >= 0) {
+                            if (event.data.mouse_button.button == IO_MOUSE_BUTTON_LEFT) {
+                                player_inventory_handle_click(&player, slot);
+                            } else {
+                                player.selected_slot = (uint8_t)slot;
+                            }
+                        }
                     }
                     break;
                 }

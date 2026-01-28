@@ -25,6 +25,13 @@ typedef struct Player {
     uint8_t selected_slot;
     uint8_t inventory[INVENTORY_SIZE];
     uint8_t inventory_counts[INVENTORY_SIZE];
+    uint8_t inventory_held_type;
+    uint8_t inventory_held_count;
+    uint8_t inventory_held_origin_slot;
+    bool inventory_held_origin_valid;
+    float inventory_mouse_ndc_x;
+    float inventory_mouse_ndc_y;
+    bool inventory_mouse_valid;
 } Player;
 
 /* -------------------------------------------------------------------------- */
@@ -60,6 +67,8 @@ void player_handle_block_interaction(Player *player,
                                      bool interaction_enabled);
 
 void player_inventory_add(Player *player, uint8_t type);
+void player_inventory_handle_click(Player *player, int slot);
+void player_inventory_cancel_held(Player *player);
 
 RayHit raycast_blocks(World *world, Vec3 origin, Vec3 direction, float max_distance);
 

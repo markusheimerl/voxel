@@ -30,6 +30,11 @@ void player_init(Player *player, Vec3 spawn_position) {
     player->position = spawn_position;
     player->inventory_open = false;
     player->selected_slot = 0;
+    player->inventory_held_origin_slot = 0;
+    player->inventory_held_origin_valid = false;
+    player->inventory_mouse_ndc_x = 0.0f;
+    player->inventory_mouse_ndc_y = 0.0f;
+    player->inventory_mouse_valid = false;
 }
 
 float player_eye_height(void) {
@@ -114,7 +119,7 @@ void player_handle_block_interaction(Player *player,
         if (world_block_exists(world, place) || block_overlaps_player(player, place)) return;
 
         uint8_t slot = player->selected_slot;
-        if (slot >= 9 || player->inventory_counts[slot] == 0) return;
+        if (slot >= INVENTORY_SIZE || player->inventory_counts[slot] == 0) return;
 
         uint8_t place_type = player->inventory[slot];
         world_add_block(world, place, place_type);
@@ -299,6 +304,140 @@ void player_inventory_add(Player *player, uint8_t type) {
             return;
         }
     }
+}
+
+void player_inventory_handle_click(Player *player, int slot) {
+    if (!player) return;
+    if (slot < 0 || slot >= INVENTORY_SIZE) return;
+
+    uint8_t held_count = player->inventory_held_count;
+    uint8_t held_type = player->inventory_held_type;
+
+    if (held_count == 0) {
+        if (player->inventory_counts[slot] == 0) return;
+        player->inventory_held_type = player->inventory[slot];
+        player->inventory_held_count = player->inventory_counts[slot];
+        player->inventory[slot] = 0;
+        player->inventory_counts[slot] = 0;
+        player->inventory_held_origin_slot = (uint8_t)slot;
+        player->inventory_held_origin_valid = true;
+        return;
+    }
+
+    if (player->inventory_counts[slot] == 0) {
+        player->inventory[slot] = held_type;
+        player->inventory_counts[slot] = held_count;
+        player->inventory_held_type = 0;
+        player->inventory_held_count = 0;
+        player->inventory_held_origin_valid = false;
+        return;
+    }
+
+    if (player->inventory[slot] == held_type) {
+        uint16_t total = (uint16_t)player->inventory_counts[slot] + (uint16_t)held_count;
+        if (total <= UINT8_MAX) {
+            player->inventory_counts[slot] = (uint8_t)total;
+            player->inventory_held_type = 0;
+            player->inventory_held_count = 0;
+            player->inventory_held_origin_valid = false;
+        } else {
+            player->inventory_counts[slot] = UINT8_MAX;
+            player->inventory_held_count = (uint8_t)(total - UINT8_MAX);
+        }
+        return;
+    }
+
+    uint8_t swap_type = player->inventory[slot];
+    uint8_t swap_count = player->inventory_counts[slot];
+    player->inventory[slot] = held_type;
+    player->inventory_counts[slot] = held_count;
+    player->inventory_held_type = swap_type;
+    player->inventory_held_count = swap_count;
+}
+
+static bool inventory_place_stack_skip(Player *player, uint8_t type, uint8_t count, int skip_slot) {
+    if (!player || count == 0) return true;
+
+    for (int i = 0; i < INVENTORY_SIZE && count > 0; ++i) {
+        if (i == skip_slot) continue;
+        if (player->inventory_counts[i] == 0) continue;
+        if (player->inventory[i] != type) continue;
+
+        uint16_t total = (uint16_t)player->inventory_counts[i] + (uint16_t)count;
+        if (total <= UINT8_MAX) {
+            player->inventory_counts[i] = (uint8_t)total;
+            count = 0;
+            break;
+        }
+        uint8_t space = (uint8_t)(UINT8_MAX - player->inventory_counts[i]);
+        player->inventory_counts[i] = UINT8_MAX;
+        count = (uint8_t)(count - space);
+    }
+
+    if (count == 0) return true;
+
+    for (int i = 0; i < INVENTORY_SIZE && count > 0; ++i) {
+        if (i == skip_slot) continue;
+        if (player->inventory_counts[i] != 0) continue;
+        player->inventory[i] = type;
+        player->inventory_counts[i] = count;
+        count = 0;
+    }
+
+    return count == 0;
+}
+
+void player_inventory_cancel_held(Player *player) {
+    if (!player) return;
+    if (player->inventory_held_count == 0 || !player->inventory_held_origin_valid) return;
+
+    int origin = (int)player->inventory_held_origin_slot;
+    if (origin < 0 || origin >= INVENTORY_SIZE) return;
+
+    uint8_t held_type = player->inventory_held_type;
+    uint8_t held_count = player->inventory_held_count;
+
+    if (player->inventory_counts[origin] == 0) {
+        player->inventory[origin] = held_type;
+        player->inventory_counts[origin] = held_count;
+        player->inventory_held_type = 0;
+        player->inventory_held_count = 0;
+        player->inventory_held_origin_valid = false;
+        return;
+    }
+
+    if (player->inventory[origin] == held_type) {
+        uint16_t total = (uint16_t)player->inventory_counts[origin] + (uint16_t)held_count;
+        if (total <= UINT8_MAX) {
+            player->inventory_counts[origin] = (uint8_t)total;
+            player->inventory_held_type = 0;
+            player->inventory_held_count = 0;
+            player->inventory_held_origin_valid = false;
+        } else {
+            player->inventory_counts[origin] = UINT8_MAX;
+            uint8_t remaining = (uint8_t)(total - UINT8_MAX);
+            if (inventory_place_stack_skip(player, held_type, remaining, origin)) {
+                player->inventory_held_type = 0;
+                player->inventory_held_count = 0;
+                player->inventory_held_origin_valid = false;
+            } else {
+                player->inventory_held_count = remaining;
+            }
+        }
+        return;
+    }
+
+    uint8_t displaced_type = player->inventory[origin];
+    uint8_t displaced_count = player->inventory_counts[origin];
+    if (!inventory_place_stack_skip(player, displaced_type, displaced_count, origin)) {
+        return;
+    }
+
+    player->inventory[origin] = held_type;
+    player->inventory_counts[origin] = held_count;
+    player->inventory_held_type = 0;
+    player->inventory_held_count = 0;
+    player->inventory_held_origin_valid = false;
 }
 
 static void append_line(Vertex *verts, uint32_t *count, uint32_t max,
@@ -508,6 +647,18 @@ uint32_t player_inventory_icon_instances(const Player *player,
         icon_index++;
     }
 
+    if (player->inventory_open && player->inventory_mouse_valid && player->inventory_held_count > 0) {
+        if (out_instances && icon_index < max_instances) {
+            out_instances[icon_index] = (InstanceData){
+                player->inventory_mouse_ndc_x,
+                player->inventory_mouse_ndc_y,
+                0.0f,
+                (uint32_t)player->inventory_held_type
+            };
+        }
+        icon_index++;
+    }
+
     return icon_index;
 }
 
@@ -550,6 +701,37 @@ uint32_t player_inventory_count_vertices(const Player *player,
         if (count >= 100) { digits[digit_count++] = d2; }
         if (count >= 10) { digits[digit_count++] = d1; }
         digits[digit_count++] = d0;
+
+        float total_w = (float)digit_count * digit_w + (float)(digit_count - 1) * gap;
+        float start_x = cell_left + h_step - total_w - h_step * 0.08f;
+        float start_y = cell_top - v_step + v_step * 0.12f;
+
+        for (int i = 0; i < digit_count; ++i) {
+            append_digit(out_vertices, &count_vertices, max_vertices,
+                         digits[i], start_x + i * (digit_w + gap), start_y, digit_w, digit_h);
+        }
+    }
+
+    if (player->inventory_open && player->inventory_mouse_valid && player->inventory_held_count > 0) {
+        uint8_t count = player->inventory_held_count;
+        int d0 = count % 10;
+        int d1 = (count / 10) % 10;
+        int d2 = (count / 100) % 10;
+
+        int digits[3];
+        int digit_count = 0;
+        if (count >= 100) { digits[digit_count++] = d2; }
+        if (count >= 10) { digits[digit_count++] = d1; }
+        digits[digit_count++] = d0;
+
+        float center_x = player->inventory_mouse_ndc_x;
+        float center_y = player->inventory_mouse_ndc_y;
+        float cell_left = center_x - h_step * 0.5f;
+        float cell_top = center_y + v_step * 0.5f;
+
+        float digit_w = h_step * 0.16f;
+        float digit_h = v_step * 0.35f;
+        float gap = digit_w * 0.25f;
 
         float total_w = (float)digit_count * digit_w + (float)(digit_count - 1) * gap;
         float start_x = cell_left + h_step - total_w - h_step * 0.08f;
