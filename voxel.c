@@ -143,7 +143,7 @@ int main(void) {
 
             case IO_EVENT_MOUSE_BUTTON:
                 if (player.inventory_open) {
-                    if (event.data.mouse_button.button == IO_MOUSE_BUTTON_LEFT) {
+                    if (event.data.mouse_button.button == IO_MOUSE_BUTTON_RIGHT) {
                         float aspect = (float)window_height / (float)window_width;
                         int slot = player_inventory_slot_from_mouse(aspect,
                                                                      (float)event.data.mouse_button.x,
