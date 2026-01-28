@@ -16,17 +16,9 @@ typedef struct Camera Camera;
 
 void die(const char *message);
 
-Renderer *renderer_create(void *display,
-                                     unsigned long window,
-                                     uint32_t framebuffer_width,
-                                     uint32_t framebuffer_height);
+Renderer *renderer_create(void *display, unsigned long window, uint32_t framebuffer_width, uint32_t framebuffer_height);
 void renderer_destroy(Renderer *renderer);
-void renderer_draw_frame(Renderer *renderer,
-                         World *world,
-                         const Player *player,
-                         Camera *camera,
-                         bool highlight,
-                         IVec3 highlight_cell);
+void renderer_draw_frame(Renderer *renderer, World *world, const Player *player, Camera *camera, bool highlight, IVec3 highlight_cell);
 
 /* -------------------------------------------------------------------------- */
 /* Vertex Formats                                                             */
