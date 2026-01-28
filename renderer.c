@@ -1016,57 +1016,10 @@ void swapchain_create(Renderer *renderer,
 /* Renderer                                                                   */
 /* -------------------------------------------------------------------------- */
 
-static void renderer_init_swapchain(Renderer *renderer,
-                                    uint32_t framebuffer_width,
-                                    uint32_t framebuffer_height) {
-    if (framebuffer_width == 0 || framebuffer_height == 0) {
-        die("Invalid framebuffer size for swapchain initialization");
-    }
-
-    swapchain_create(renderer, framebuffer_width, framebuffer_height);
-
-    const float crosshair_size = 0.03f;
-    float aspect_correction = (float)renderer->swapchain_extent.height / (float)renderer->swapchain_extent.width;
-
-    Vertex crosshair_vertices[] = {
-        {{-crosshair_size * aspect_correction, 0.0f, 0.0f}, {0.0f, 0.0f}},
-        {{ crosshair_size * aspect_correction, 0.0f, 0.0f}, {1.0f, 0.0f}},
-        {{ 0.0f, -crosshair_size, 0.0f}, {0.0f, 0.0f}},
-        {{ 0.0f,  crosshair_size, 0.0f}, {1.0f, 0.0f}},
-    };
-
-    upload_buffer_data(renderer->device, renderer->crosshair_vertex_memory,
-                       crosshair_vertices, sizeof(crosshair_vertices));
-
-    float inv_h_step = 0.0f;
-    float inv_v_step = 0.0f;
-
-    const uint32_t INVENTORY_MAX_VERTICES = 32;
-    Vertex inventory_vertices[INVENTORY_MAX_VERTICES];
-    player_inventory_grid_vertices(aspect_correction,
-                                   inventory_vertices,
-                                   (uint32_t)ARRAY_LENGTH(inventory_vertices),
-                                   &renderer->inventory_vertex_count,
-                                   &inv_h_step,
-                                   &inv_v_step);
-    upload_buffer_data(renderer->device, renderer->inventory_vertex_memory,
-                       inventory_vertices, renderer->inventory_vertex_count * sizeof(Vertex));
-
-    const uint32_t INVENTORY_ICON_VERTEX_COUNT = 6;
-    Vertex icon_vertices[INVENTORY_ICON_VERTEX_COUNT];
-    player_inventory_icon_vertices(inv_h_step, inv_v_step,
-                                   icon_vertices,
-                                   INVENTORY_ICON_VERTEX_COUNT,
-                                   &renderer->inventory_icon_vertex_count);
-
-    upload_buffer_data(renderer->device, renderer->inventory_icon_vertex_memory,
-                       icon_vertices, renderer->inventory_icon_vertex_count * sizeof(Vertex));
-}
-
 Renderer *renderer_create(void *display,
-                                     unsigned long window,
-                                     uint32_t framebuffer_width,
-                                     uint32_t framebuffer_height) {
+                          unsigned long window,
+                          uint32_t framebuffer_width,
+                          uint32_t framebuffer_height) {
     Renderer *renderer = calloc(1, sizeof(*renderer));
     if (!renderer) die("Failed to allocate renderer");
 
@@ -1294,7 +1247,42 @@ Renderer *renderer_create(void *display,
 
     swapchain_resources_reset(renderer);
 
-    renderer_init_swapchain(renderer, framebuffer_width, framebuffer_height);
+    swapchain_create(renderer, framebuffer_width, framebuffer_height);
+
+    const float crosshair_size = 0.03f;
+    float aspect_correction = (float)renderer->swapchain_extent.height / (float)renderer->swapchain_extent.width;
+
+    Vertex crosshair_vertices[] = {
+        {{-crosshair_size * aspect_correction, 0.0f, 0.0f}, {0.0f, 0.0f}},
+        {{ crosshair_size * aspect_correction, 0.0f, 0.0f}, {1.0f, 0.0f}},
+        {{ 0.0f, -crosshair_size, 0.0f}, {0.0f, 0.0f}},
+        {{ 0.0f,  crosshair_size, 0.0f}, {1.0f, 0.0f}},
+    };
+
+    upload_buffer_data(renderer->device, renderer->crosshair_vertex_memory,
+                       crosshair_vertices, sizeof(crosshair_vertices));
+
+    float inv_h_step = 0.0f;
+    float inv_v_step = 0.0f;
+
+    Vertex inventory_vertices[INVENTORY_MAX_VERTICES];
+    player_inventory_grid_vertices(aspect_correction,
+                                   inventory_vertices,
+                                   (uint32_t)ARRAY_LENGTH(inventory_vertices),
+                                   &renderer->inventory_vertex_count,
+                                   &inv_h_step,
+                                   &inv_v_step);
+    upload_buffer_data(renderer->device, renderer->inventory_vertex_memory,
+                       inventory_vertices, renderer->inventory_vertex_count * sizeof(Vertex));
+
+    Vertex icon_vertices[INVENTORY_ICON_VERTEX_COUNT];
+    player_inventory_icon_vertices(inv_h_step, inv_v_step,
+                                   icon_vertices,
+                                   INVENTORY_ICON_VERTEX_COUNT,
+                                   &renderer->inventory_icon_vertex_count);
+
+    upload_buffer_data(renderer->device, renderer->inventory_icon_vertex_memory,
+                       icon_vertices, renderer->inventory_icon_vertex_count * sizeof(Vertex));
 
     return renderer;
 }
