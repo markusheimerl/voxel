@@ -68,6 +68,7 @@ void player_handle_block_interaction(Player *player,
 
 void player_inventory_add(Player *player, uint8_t type);
 void player_inventory_handle_click(Player *player, int slot);
+void player_inventory_handle_right_click(Player *player, int slot);
 void player_inventory_cancel_held(Player *player);
 
 RayHit raycast_blocks(World *world, Vec3 origin, Vec3 direction, float max_distance);

@@ -355,6 +355,45 @@ void player_inventory_handle_click(Player *player, int slot) {
     player->inventory_held_count = swap_count;
 }
 
+void player_inventory_handle_right_click(Player *player, int slot) {
+    if (!player) return;
+    if (slot < 0 || slot >= INVENTORY_SIZE) return;
+
+    if (player->inventory_held_count != 0) {
+        if (player->inventory_counts[slot] == 0) {
+            player->inventory[slot] = player->inventory_held_type;
+            player->inventory_counts[slot] = 1;
+            player->inventory_held_count--;
+        } else if (player->inventory[slot] == player->inventory_held_type &&
+                   player->inventory_counts[slot] < UINT8_MAX) {
+            player->inventory_counts[slot]++;
+            player->inventory_held_count--;
+        } else {
+            return;
+        }
+
+        if (player->inventory_held_count == 0) {
+            player->inventory_held_type = 0;
+            player->inventory_held_origin_valid = false;
+        }
+        return;
+    }
+
+    if (player->inventory_counts[slot] == 0) return;
+
+    uint8_t slot_count = player->inventory_counts[slot];
+    uint8_t take_count = (uint8_t)((slot_count + 1) / 2);
+    uint8_t remain_count = (uint8_t)(slot_count - take_count);
+
+    player->inventory_held_type = player->inventory[slot];
+    player->inventory_held_count = take_count;
+    player->inventory_held_origin_slot = (uint8_t)slot;
+    player->inventory_held_origin_valid = true;
+
+    player->inventory_counts[slot] = remain_count;
+    if (remain_count == 0) player->inventory[slot] = 0;
+}
+
 static bool inventory_place_stack_skip(Player *player, uint8_t type, uint8_t count, int skip_slot) {
     if (!player || count == 0) return true;
 
