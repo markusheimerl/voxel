@@ -623,85 +623,6 @@ VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
 /* Vulkan Swapchain Resources                                                 */
 /* -------------------------------------------------------------------------- */
 
-void swapchain_resources_reset(Renderer *renderer) {
-    renderer->swapchain = VK_NULL_HANDLE;
-    renderer->swapchain_images = NULL;
-    renderer->swapchain_image_views = NULL;
-    renderer->swapchain_framebuffers = NULL;
-    renderer->swapchain_render_pass = VK_NULL_HANDLE;
-    renderer->swapchain_pipeline_solid = VK_NULL_HANDLE;
-    renderer->swapchain_pipeline_wireframe = VK_NULL_HANDLE;
-    renderer->swapchain_pipeline_crosshair = VK_NULL_HANDLE;
-    renderer->swapchain_pipeline_overlay = VK_NULL_HANDLE;
-    renderer->swapchain_descriptor_pool = VK_NULL_HANDLE;
-    renderer->swapchain_descriptor_sets_normal = NULL;
-    renderer->swapchain_descriptor_sets_highlight = NULL;
-    renderer->swapchain_command_buffers = NULL;
-    renderer->swapchain_depth_image = VK_NULL_HANDLE;
-    renderer->swapchain_depth_memory = VK_NULL_HANDLE;
-    renderer->swapchain_depth_view = VK_NULL_HANDLE;
-    renderer->swapchain_image_count = 0;
-    renderer->swapchain_extent = (VkExtent2D){0, 0};
-    renderer->swapchain_format = VK_FORMAT_UNDEFINED;
-}
-
-void swapchain_destroy(Renderer *renderer) {
-    VkDevice device = renderer->device;
-    VkCommandPool command_pool = renderer->command_pool;
-
-    if (renderer->swapchain_command_buffers) {
-        vkFreeCommandBuffers(device, command_pool, renderer->swapchain_image_count, renderer->swapchain_command_buffers);
-        free(renderer->swapchain_command_buffers);
-        renderer->swapchain_command_buffers = NULL;
-    }
-
-    VK_DESTROY(device, DescriptorPool, renderer->swapchain_descriptor_pool);
-
-    if (renderer->swapchain_framebuffers) {
-        for (uint32_t i = 0; i < renderer->swapchain_image_count; ++i) {
-            vkDestroyFramebuffer(device, renderer->swapchain_framebuffers[i], NULL);
-        }
-        free(renderer->swapchain_framebuffers);
-        renderer->swapchain_framebuffers = NULL;
-    }
-
-    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_crosshair);
-    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_overlay);
-    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_wireframe);
-    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_solid);
-
-    VK_DESTROY(device, RenderPass, renderer->swapchain_render_pass);
-
-    VK_DESTROY(device, ImageView, renderer->swapchain_depth_view);
-    VK_DESTROY(device, Image, renderer->swapchain_depth_image);
-    if (renderer->swapchain_depth_memory != VK_NULL_HANDLE) {
-        vkFreeMemory(device, renderer->swapchain_depth_memory, NULL);
-        renderer->swapchain_depth_memory = VK_NULL_HANDLE;
-    }
-
-    if (renderer->swapchain_image_views) {
-        for (uint32_t i = 0; i < renderer->swapchain_image_count; ++i) {
-            vkDestroyImageView(device, renderer->swapchain_image_views[i], NULL);
-        }
-        free(renderer->swapchain_image_views);
-        renderer->swapchain_image_views = NULL;
-    }
-
-    free(renderer->swapchain_images);
-    renderer->swapchain_images = NULL;
-
-    VK_DESTROY(device, SwapchainKHR, renderer->swapchain);
-
-    free(renderer->swapchain_descriptor_sets_normal);
-    free(renderer->swapchain_descriptor_sets_highlight);
-    renderer->swapchain_descriptor_sets_normal = NULL;
-    renderer->swapchain_descriptor_sets_highlight = NULL;
-
-    renderer->swapchain_image_count = 0;
-    renderer->swapchain_extent = (VkExtent2D){0, 0};
-    renderer->swapchain_format = VK_FORMAT_UNDEFINED;
-}
-
 static VkPipelineRasterizationStateCreateInfo make_raster_state(VkPolygonMode poly, VkCullModeFlags cull) {
     return (VkPipelineRasterizationStateCreateInfo){
         .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -1245,8 +1166,6 @@ Renderer *renderer_create(void *display,
     VK_CHECK(vkCreateSemaphore(renderer->device, &semaphore_info, NULL, &renderer->render_finished));
     VK_CHECK(vkCreateFence(renderer->device, &fence_info, NULL, &renderer->in_flight));
 
-    swapchain_resources_reset(renderer);
-
     swapchain_create(renderer, framebuffer_width, framebuffer_height);
 
     const float crosshair_size = 0.03f;
@@ -1292,7 +1211,60 @@ void renderer_destroy(Renderer *renderer) {
 
     vkDeviceWaitIdle(renderer->device);
 
-    swapchain_destroy(renderer);
+    VkDevice device = renderer->device;
+    VkCommandPool command_pool = renderer->command_pool;
+
+    if (renderer->swapchain_command_buffers) {
+        vkFreeCommandBuffers(device, command_pool, renderer->swapchain_image_count, renderer->swapchain_command_buffers);
+        free(renderer->swapchain_command_buffers);
+        renderer->swapchain_command_buffers = NULL;
+    }
+
+    VK_DESTROY(device, DescriptorPool, renderer->swapchain_descriptor_pool);
+
+    if (renderer->swapchain_framebuffers) {
+        for (uint32_t i = 0; i < renderer->swapchain_image_count; ++i) {
+            vkDestroyFramebuffer(device, renderer->swapchain_framebuffers[i], NULL);
+        }
+        free(renderer->swapchain_framebuffers);
+        renderer->swapchain_framebuffers = NULL;
+    }
+
+    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_crosshair);
+    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_overlay);
+    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_wireframe);
+    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_solid);
+
+    VK_DESTROY(device, RenderPass, renderer->swapchain_render_pass);
+
+    VK_DESTROY(device, ImageView, renderer->swapchain_depth_view);
+    VK_DESTROY(device, Image, renderer->swapchain_depth_image);
+    if (renderer->swapchain_depth_memory != VK_NULL_HANDLE) {
+        vkFreeMemory(device, renderer->swapchain_depth_memory, NULL);
+        renderer->swapchain_depth_memory = VK_NULL_HANDLE;
+    }
+
+    if (renderer->swapchain_image_views) {
+        for (uint32_t i = 0; i < renderer->swapchain_image_count; ++i) {
+            vkDestroyImageView(device, renderer->swapchain_image_views[i], NULL);
+        }
+        free(renderer->swapchain_image_views);
+        renderer->swapchain_image_views = NULL;
+    }
+
+    free(renderer->swapchain_images);
+    renderer->swapchain_images = NULL;
+
+    VK_DESTROY(device, SwapchainKHR, renderer->swapchain);
+
+    free(renderer->swapchain_descriptor_sets_normal);
+    free(renderer->swapchain_descriptor_sets_highlight);
+    renderer->swapchain_descriptor_sets_normal = NULL;
+    renderer->swapchain_descriptor_sets_highlight = NULL;
+
+    renderer->swapchain_image_count = 0;
+    renderer->swapchain_extent = (VkExtent2D){0, 0};
+    renderer->swapchain_format = VK_FORMAT_UNDEFINED;
 
     vkDestroyFence(renderer->device, renderer->in_flight, NULL);
     vkDestroySemaphore(renderer->device, renderer->render_finished, NULL);
