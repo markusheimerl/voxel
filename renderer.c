@@ -101,13 +101,6 @@ struct Renderer {
     uint32_t textures_width[BLOCK_TYPE_COUNT];
     uint32_t textures_height[BLOCK_TYPE_COUNT];
 
-    VkImage black_texture_image;
-    VkDeviceMemory black_texture_memory;
-    VkImageView black_texture_view;
-    VkSampler black_texture_sampler;
-    uint32_t black_texture_width;
-    uint32_t black_texture_height;
-
     VkBuffer block_vertex_buffer;
     VkDeviceMemory block_vertex_memory;
     VkBuffer block_index_buffer;
@@ -539,23 +532,6 @@ void texture_create(VkDevice device,
     free(pixels);
 }
 
-void texture_create_solid(VkDevice device,
-                                 VkPhysicalDevice physical_device,
-                                 VkCommandPool command_pool,
-                                 VkQueue graphics_queue,
-                                 uint8_t r, uint8_t g, uint8_t b, uint8_t a,
-                                 VkImage *image,
-                                 VkDeviceMemory *memory,
-                                 VkImageView *view,
-                                 VkSampler *sampler,
-                                 uint32_t *out_width,
-                                 uint32_t *out_height) {
-    uint8_t pixel[4] = {r, g, b, a};
-    texture_create_from_pixels(device, physical_device, command_pool, graphics_queue,
-                               pixel, 1, 1,
-                               image, memory, view, sampler, out_width, out_height);
-}
-
 void texture_destroy(VkDevice device,
                      VkImage *image,
                      VkDeviceMemory *memory,
@@ -749,16 +725,6 @@ Renderer *renderer_create(void *display,
                        &renderer->textures_width[i],
                        &renderer->textures_height[i]);
     }
-
-    texture_create_solid(renderer->device, renderer->physical_device,
-                         renderer->command_pool, renderer->graphics_queue,
-                         0, 0, 0, 255,
-                         &renderer->black_texture_image,
-                         &renderer->black_texture_memory,
-                         &renderer->black_texture_view,
-                         &renderer->black_texture_sampler,
-                         &renderer->black_texture_width,
-                         &renderer->black_texture_height);
 
     CREATE_BUFFER_WITH_DATA(renderer->device, renderer->physical_device, BLOCK_VERTICES,
                             VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -1135,11 +1101,6 @@ Renderer *renderer_create(void *display,
             highlight_images[tex] = normal_images[tex];
         }
 
-        if (BLOCK_TYPE_COUNT > HIGHLIGHT_TEXTURE_INDEX) {
-            highlight_images[HIGHLIGHT_TEXTURE_INDEX].imageView = renderer->black_texture_view;
-            highlight_images[HIGHLIGHT_TEXTURE_INDEX].sampler = renderer->black_texture_sampler;
-        }
-
         VkWriteDescriptorSet swap_write = {.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
                                       .dstBinding = 0,
                                       .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -1300,14 +1261,6 @@ void renderer_destroy(Renderer *renderer) {
                         &renderer->textures_width[i],
                         &renderer->textures_height[i]);
     }
-    texture_destroy(renderer->device,
-                    &renderer->black_texture_image,
-                    &renderer->black_texture_memory,
-                    &renderer->black_texture_view,
-                    &renderer->black_texture_sampler,
-                    &renderer->black_texture_width,
-                    &renderer->black_texture_height);
-
     vkDestroyPipelineLayout(renderer->device, renderer->pipeline_layout, NULL);
     vkDestroyDescriptorSetLayout(renderer->device, renderer->descriptor_layout, NULL);
     vkDestroyShaderModule(renderer->device, renderer->vert_shader, NULL);

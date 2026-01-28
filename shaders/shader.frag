@@ -12,6 +12,7 @@ const uint BLOCK_TYPE_COUNT = 7u;
 const uint CROSSHAIR_INDEX = BLOCK_TYPE_COUNT;
 const uint INVENTORY_SELECTION_INDEX = BLOCK_TYPE_COUNT + 1u;
 const uint INVENTORY_BG_INDEX = BLOCK_TYPE_COUNT + 2u;
+const uint HIGHLIGHT_INDEX = BLOCK_TYPE_COUNT + 3u;
 
 void main() {
     if (fragBlockType == CROSSHAIR_INDEX) {
@@ -20,6 +21,8 @@ void main() {
         outColor = vec4(1.0, 1.0, 0.0, 1.0);
     } else if (fragBlockType == INVENTORY_BG_INDEX) {
         outColor = vec4(0.35, 0.35, 0.35, 1.0);
+    } else if (fragBlockType == HIGHLIGHT_INDEX) {
+        outColor = vec4(0.0, 0.0, 0.0, 1.0);
     } else {
         outColor = texture(texSamplers[nonuniformEXT(fragBlockType)], fragUV);
     }
