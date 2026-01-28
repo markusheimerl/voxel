@@ -456,17 +456,17 @@ static void texture_create_from_pixels(VkDevice device,
     if (out_height) *out_height = height;
 }
 
-void texture_create_from_file(VkDevice device,
-                                     VkPhysicalDevice physical_device,
-                                     VkCommandPool command_pool,
-                                     VkQueue graphics_queue,
-                                     const char *filename,
-                                     VkImage *image,
-                                     VkDeviceMemory *memory,
-                                     VkImageView *view,
-                                     VkSampler *sampler,
-                                     uint32_t *out_width,
-                                     uint32_t *out_height) {
+void texture_create(VkDevice device,
+                    VkPhysicalDevice physical_device,
+                    VkCommandPool command_pool,
+                    VkQueue graphics_queue,
+                    const char *filename,
+                    VkImage *image,
+                    VkDeviceMemory *memory,
+                    VkImageView *view,
+                    VkSampler *sampler,
+                    uint32_t *out_width,
+                    uint32_t *out_height) {
 
     FILE *fp = fopen(filename, "rb");
     if (!fp) die("Failed to load PNG texture");
@@ -739,15 +739,15 @@ Renderer *renderer_create(void *display,
     };
 
     for (uint32_t i = 0; i < BLOCK_TYPE_COUNT; ++i) {
-        texture_create_from_file(renderer->device, renderer->physical_device,
-                                 renderer->command_pool, renderer->graphics_queue,
-                                 texture_files[i],
-                                 &renderer->textures_image[i],
-                                 &renderer->textures_memory[i],
-                                 &renderer->textures_view[i],
-                                 &renderer->textures_sampler[i],
-                                 &renderer->textures_width[i],
-                                 &renderer->textures_height[i]);
+        texture_create(renderer->device, renderer->physical_device,
+                       renderer->command_pool, renderer->graphics_queue,
+                       texture_files[i],
+                       &renderer->textures_image[i],
+                       &renderer->textures_memory[i],
+                       &renderer->textures_view[i],
+                       &renderer->textures_sampler[i],
+                       &renderer->textures_width[i],
+                       &renderer->textures_height[i]);
     }
 
     texture_create_solid(renderer->device, renderer->physical_device,
