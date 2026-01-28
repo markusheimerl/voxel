@@ -79,7 +79,7 @@ const char *vk_result_to_string(VkResult result) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Renderer Types (Vulkan internal)                                           */
+/* Renderer Struct                                                            */
 /* -------------------------------------------------------------------------- */
 
 struct Renderer {
@@ -274,89 +274,6 @@ static void create_image(VkDevice device,
     VK_CHECK(vkBindImageMemory(device, *image, *memory, 0));
 }
 
-static VkCommandBuffer begin_single_use_commands(VkDevice device, VkCommandPool command_pool) {
-    VkCommandBufferAllocateInfo alloc_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
-                                              .commandPool = command_pool,
-                                              .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
-                                              .commandBufferCount = 1};
-
-    VkCommandBuffer command_buffer;
-    VK_CHECK(vkAllocateCommandBuffers(device, &alloc_info, &command_buffer));
-
-    VkCommandBufferBeginInfo begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                                           .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-
-    VK_CHECK(vkBeginCommandBuffer(command_buffer, &begin_info));
-    return command_buffer;
-}
-
-static void end_single_use_commands(VkDevice device, VkCommandPool command_pool,
-                                    VkQueue graphics_queue, VkCommandBuffer command_buffer) {
-    VK_CHECK(vkEndCommandBuffer(command_buffer));
-
-    VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                .commandBufferCount = 1,
-                                .pCommandBuffers = &command_buffer};
-
-    VK_CHECK(vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
-    VK_CHECK(vkQueueWaitIdle(graphics_queue));
-
-    vkFreeCommandBuffers(device, command_pool, 1, &command_buffer);
-}
-
-static void transition_image_layout(VkDevice device,
-                                    VkCommandPool command_pool,
-                                    VkQueue graphics_queue,
-                                    VkImage image,
-                                    VkFormat format,
-                                    VkImageLayout old_layout,
-                                    VkImageLayout new_layout) {
-    (void)format;
-
-    VkCommandBuffer command_buffer = begin_single_use_commands(device, command_pool);
-
-    VkImageMemoryBarrier barrier = {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
-                                    .oldLayout = old_layout,
-                                    .newLayout = new_layout,
-                                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-                                    .image = image,
-                                    .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
-
-    VkPipelineStageFlags src_stage = 0;
-    VkPipelineStageFlags dst_stage = 0;
-
-    if (old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
-        new_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
-    {
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        src_stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
-        dst_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-    }
-    else if (old_layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL &&
-             new_layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
-    {
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-        src_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
-        dst_stage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-    }
-    else
-    {
-        die("Unsupported image layout transition");
-    }
-
-    vkCmdPipelineBarrier(command_buffer,
-                         src_stage, dst_stage,
-                         0,
-                         0, NULL,
-                         0, NULL,
-                         1, &barrier);
-
-    end_single_use_commands(device, command_pool, graphics_queue, command_buffer);
-}
-
 /* -------------------------------------------------------------------------- */
 /* Texture Handling                                                           */
 /* -------------------------------------------------------------------------- */
@@ -465,26 +382,64 @@ void texture_create(VkDevice device,
                  image,
                  memory);
 
-    transition_image_layout(device, command_pool, graphics_queue,
-                            *image, VK_FORMAT_R8G8B8A8_SRGB,
-                            VK_IMAGE_LAYOUT_UNDEFINED,
-                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkCommandBufferAllocateInfo cmd_alloc = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+                                             .commandPool = command_pool,
+                                             .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+                                             .commandBufferCount = 1};
+    VkCommandBuffer cmd = VK_NULL_HANDLE;
+    VK_CHECK(vkAllocateCommandBuffers(device, &cmd_alloc, &cmd));
 
-    VkCommandBuffer copy_cmd = begin_single_use_commands(device, command_pool);
+    VkCommandBufferBeginInfo cmd_begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                                          .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+    VK_CHECK(vkBeginCommandBuffer(cmd, &cmd_begin));
+
+    VkImageMemoryBarrier barrier = {.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+                                    .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                    .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                                    .image = *image,
+                                    .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
+
+    barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.srcAccessMask = 0;
+    barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         0,
+                         0, NULL,
+                         0, NULL,
+                         1, &barrier);
+
     VkBufferImageCopy region = {.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
                                 .imageExtent = {(uint32_t)width, (uint32_t)height, 1}};
-    vkCmdCopyBufferToImage(copy_cmd,
+    vkCmdCopyBufferToImage(cmd,
                            staging_buffer,
                            *image,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                            1,
                            &region);
-    end_single_use_commands(device, command_pool, graphics_queue, copy_cmd);
 
-    transition_image_layout(device, command_pool, graphics_queue,
-                            *image, VK_FORMAT_R8G8B8A8_SRGB,
-                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    vkCmdPipelineBarrier(cmd,
+                         VK_PIPELINE_STAGE_TRANSFER_BIT,
+                         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                         0,
+                         0, NULL,
+                         0, NULL,
+                         1, &barrier);
+
+    VK_CHECK(vkEndCommandBuffer(cmd));
+
+    VkSubmitInfo submit_info = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                                .commandBufferCount = 1,
+                                .pCommandBuffers = &cmd};
+    VK_CHECK(vkQueueSubmit(graphics_queue, 1, &submit_info, VK_NULL_HANDLE));
+    VK_CHECK(vkQueueWaitIdle(graphics_queue));
+    vkFreeCommandBuffers(device, command_pool, 1, &cmd);
 
     vkDestroyBuffer(device, staging_buffer, NULL);
     vkFreeMemory(device, staging_memory, NULL);
