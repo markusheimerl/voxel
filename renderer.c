@@ -620,29 +620,6 @@ VkShaderModule create_shader_module(VkDevice device, const char *filepath) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Vulkan Swapchain Resources                                                 */
-/* -------------------------------------------------------------------------- */
-
-static VkPipelineRasterizationStateCreateInfo make_raster_state(VkPolygonMode poly, VkCullModeFlags cull) {
-    return (VkPipelineRasterizationStateCreateInfo){
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-        .polygonMode = poly,
-        .cullMode = cull,
-        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-        .lineWidth = 3.0f
-    };
-}
-
-static VkPipelineDepthStencilStateCreateInfo make_depth_state(VkBool32 test, VkBool32 write, VkCompareOp op) {
-    return (VkPipelineDepthStencilStateCreateInfo){
-        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-        .depthTestEnable = test,
-        .depthWriteEnable = write,
-        .depthCompareOp = op
-    };
-}
-
-/* -------------------------------------------------------------------------- */
 /* Swapchain creation                                                         */
 /* -------------------------------------------------------------------------- */
 
@@ -802,15 +779,42 @@ void swapchain_create(Renderer *renderer,
                                                          .scissorCount = 1,
                                                          .pScissors = &scissor};
 
-    VkPipelineRasterizationStateCreateInfo raster_solid = make_raster_state(VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT);
-    VkPipelineRasterizationStateCreateInfo raster_wire = make_raster_state(VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE);
+    VkPipelineRasterizationStateCreateInfo raster_solid = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .polygonMode = VK_POLYGON_MODE_FILL,
+        .cullMode = VK_CULL_MODE_BACK_BIT,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .lineWidth = 3.0f
+    };
+    VkPipelineRasterizationStateCreateInfo raster_wire = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
+        .polygonMode = VK_POLYGON_MODE_LINE,
+        .cullMode = VK_CULL_MODE_NONE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+        .lineWidth = 3.0f
+    };
 
     VkPipelineMultisampleStateCreateInfo multisample = {.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
                                                          .rasterizationSamples = VK_SAMPLE_COUNT_1_BIT};
 
-    VkPipelineDepthStencilStateCreateInfo depth_solid = make_depth_state(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
-    VkPipelineDepthStencilStateCreateInfo depth_wire = make_depth_state(VK_TRUE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
-    VkPipelineDepthStencilStateCreateInfo depth_cross = make_depth_state(VK_FALSE, VK_FALSE, VK_COMPARE_OP_ALWAYS);
+    VkPipelineDepthStencilStateCreateInfo depth_solid = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_TRUE,
+        .depthWriteEnable = VK_TRUE,
+        .depthCompareOp = VK_COMPARE_OP_LESS
+    };
+    VkPipelineDepthStencilStateCreateInfo depth_wire = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_TRUE,
+        .depthWriteEnable = VK_FALSE,
+        .depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL
+    };
+    VkPipelineDepthStencilStateCreateInfo depth_cross = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
+        .depthTestEnable = VK_FALSE,
+        .depthWriteEnable = VK_FALSE,
+        .depthCompareOp = VK_COMPARE_OP_ALWAYS
+    };
 
     VkPipelineColorBlendAttachmentState color_blend = {
         .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
