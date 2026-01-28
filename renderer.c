@@ -15,19 +15,6 @@
 /* Vulkan Error Helpers                                                       */
 /* -------------------------------------------------------------------------- */
 
-#define VK_CHECK(call)                                                            \
-    do {                                                                          \
-        VkResult vk_check_result__ = (call);                                      \
-        if (vk_check_result__ != VK_SUCCESS) {                                    \
-            fprintf(stderr, "%s failed: %s\n", #call, vk_result_to_string(vk_check_result__)); \
-            exit(EXIT_FAILURE);                                                   \
-        }                                                                         \
-    } while (0)
-
-/* -------------------------------------------------------------------------- */
-/* Vulkan Error Helpers                                                       */
-/* -------------------------------------------------------------------------- */
-
 void die(const char *message) {
     fprintf(stderr, "Error: %s\n", message);
     exit(EXIT_FAILURE);
@@ -61,6 +48,15 @@ const char *vk_result_to_string(VkResult result) {
     default:                                         return "UNKNOWN_VULKAN_ERROR";
     }
 }
+
+#define VK_CHECK(call)                                                            \
+    do {                                                                          \
+        VkResult vk_check_result__ = (call);                                      \
+        if (vk_check_result__ != VK_SUCCESS) {                                    \
+            fprintf(stderr, "%s failed: %s\n", #call, vk_result_to_string(vk_check_result__)); \
+            exit(EXIT_FAILURE);                                                   \
+        }                                                                         \
+    } while (0)
 
 /* -------------------------------------------------------------------------- */
 /* Renderer Struct                                                            */
