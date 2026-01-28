@@ -143,7 +143,7 @@ struct Renderer {
 /* Vulkan Buffer / Image Helpers                                              */
 /* -------------------------------------------------------------------------- */
 
-void create_buffer(VkDevice device,
+void buffer_create(VkDevice device,
                     VkPhysicalDevice physical_device,
                     VkDeviceSize size,
                     VkBufferUsageFlags usage,
@@ -176,6 +176,22 @@ void create_buffer(VkDevice device,
 
     VK_CHECK(vkAllocateMemory(device, &alloc_info, NULL, memory));
     VK_CHECK(vkBindBufferMemory(device, *buffer, *memory, 0));
+}
+
+static void *buffer_map(VkDevice device, VkDeviceMemory memory, VkDeviceSize size) {
+    void *mapped = NULL;
+    VK_CHECK(vkMapMemory(device, memory, 0, size, 0, &mapped));
+    return mapped;
+}
+
+static void buffer_unmap(VkDevice device, VkDeviceMemory memory) {
+    vkUnmapMemory(device, memory);
+}
+
+static void buffer_upload(VkDevice device, VkDeviceMemory memory, const void *data, VkDeviceSize size) {
+    void *mapped = buffer_map(device, memory, size);
+    memcpy(mapped, data, (size_t)size);
+    buffer_unmap(device, memory);
 }
 
 static void create_image(VkDevice device,
@@ -305,7 +321,7 @@ void texture_create(VkDevice device,
 
     VkBuffer staging_buffer;
     VkDeviceMemory staging_memory;
-    create_buffer(device,
+    buffer_create(device,
                   physical_device,
                   image_size,
                   VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -608,83 +624,71 @@ Renderer *renderer_create(void *display,
                        &renderer->textures_sampler[i]);
     }
 
-    create_buffer(renderer->device, renderer->physical_device, sizeof(BLOCK_VERTICES),
+    buffer_create(renderer->device, renderer->physical_device, sizeof(BLOCK_VERTICES),
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->block_vertex_buffer, &renderer->block_vertex_memory);
-    void *block_vertex_mapped = NULL;
     VkDeviceSize block_vertex_size = (VkDeviceSize)sizeof(BLOCK_VERTICES);
-    VK_CHECK(vkMapMemory(renderer->device, renderer->block_vertex_memory, 0, block_vertex_size, 0, &block_vertex_mapped));
-    memcpy(block_vertex_mapped, BLOCK_VERTICES, (size_t)block_vertex_size);
-    vkUnmapMemory(renderer->device, renderer->block_vertex_memory);
+    buffer_upload(renderer->device, renderer->block_vertex_memory, BLOCK_VERTICES, block_vertex_size);
 
-    create_buffer(renderer->device, renderer->physical_device, sizeof(BLOCK_INDICES),
+    buffer_create(renderer->device, renderer->physical_device, sizeof(BLOCK_INDICES),
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->block_index_buffer, &renderer->block_index_memory);
-    void *block_index_mapped = NULL;
     VkDeviceSize block_index_size = (VkDeviceSize)sizeof(BLOCK_INDICES);
-    VK_CHECK(vkMapMemory(renderer->device, renderer->block_index_memory, 0, block_index_size, 0, &block_index_mapped));
-    memcpy(block_index_mapped, BLOCK_INDICES, (size_t)block_index_size);
-    vkUnmapMemory(renderer->device, renderer->block_index_memory);
+    buffer_upload(renderer->device, renderer->block_index_memory, BLOCK_INDICES, block_index_size);
 
-    create_buffer(renderer->device, renderer->physical_device, sizeof(EDGE_VERTICES),
+    buffer_create(renderer->device, renderer->physical_device, sizeof(EDGE_VERTICES),
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->edge_vertex_buffer, &renderer->edge_vertex_memory);
-    void *edge_vertex_mapped = NULL;
     VkDeviceSize edge_vertex_size = (VkDeviceSize)sizeof(EDGE_VERTICES);
-    VK_CHECK(vkMapMemory(renderer->device, renderer->edge_vertex_memory, 0, edge_vertex_size, 0, &edge_vertex_mapped));
-    memcpy(edge_vertex_mapped, EDGE_VERTICES, (size_t)edge_vertex_size);
-    vkUnmapMemory(renderer->device, renderer->edge_vertex_memory);
+    buffer_upload(renderer->device, renderer->edge_vertex_memory, EDGE_VERTICES, edge_vertex_size);
 
-    create_buffer(renderer->device, renderer->physical_device, sizeof(EDGE_INDICES),
+    buffer_create(renderer->device, renderer->physical_device, sizeof(EDGE_INDICES),
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->edge_index_buffer, &renderer->edge_index_memory);
-    void *edge_index_mapped = NULL;
     VkDeviceSize edge_index_size = (VkDeviceSize)sizeof(EDGE_INDICES);
-    VK_CHECK(vkMapMemory(renderer->device, renderer->edge_index_memory, 0, edge_index_size, 0, &edge_index_mapped));
-    memcpy(edge_index_mapped, EDGE_INDICES, (size_t)edge_index_size);
-    vkUnmapMemory(renderer->device, renderer->edge_index_memory);
+    buffer_upload(renderer->device, renderer->edge_index_memory, EDGE_INDICES, edge_index_size);
 
-    create_buffer(renderer->device, renderer->physical_device, sizeof(Vertex) * 4,
+    buffer_create(renderer->device, renderer->physical_device, sizeof(Vertex) * 4,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->crosshair_vertex_buffer, &renderer->crosshair_vertex_memory);
 
     const uint32_t INVENTORY_MAX_VERTICES = 32;
-    create_buffer(renderer->device, renderer->physical_device, sizeof(Vertex) * INVENTORY_MAX_VERTICES,
+    buffer_create(renderer->device, renderer->physical_device, sizeof(Vertex) * INVENTORY_MAX_VERTICES,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->inventory_vertex_buffer, &renderer->inventory_vertex_memory);
 
     const uint32_t INVENTORY_ICON_VERTEX_COUNT = 6;
-    create_buffer(renderer->device, renderer->physical_device, sizeof(Vertex) * INVENTORY_ICON_VERTEX_COUNT,
+    buffer_create(renderer->device, renderer->physical_device, sizeof(Vertex) * INVENTORY_ICON_VERTEX_COUNT,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->inventory_icon_vertex_buffer, &renderer->inventory_icon_vertex_memory);
 
     const uint32_t INVENTORY_COUNT_MAX_VERTICES = 1500;
-    create_buffer(renderer->device, renderer->physical_device, sizeof(Vertex) * INVENTORY_COUNT_MAX_VERTICES,
+    buffer_create(renderer->device, renderer->physical_device, sizeof(Vertex) * INVENTORY_COUNT_MAX_VERTICES,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->inventory_count_vertex_buffer, &renderer->inventory_count_vertex_memory);
 
     const uint32_t INVENTORY_SELECTION_VERTEX_COUNT = 8;
-    create_buffer(renderer->device, renderer->physical_device, sizeof(Vertex) * INVENTORY_SELECTION_VERTEX_COUNT,
+    buffer_create(renderer->device, renderer->physical_device, sizeof(Vertex) * INVENTORY_SELECTION_VERTEX_COUNT,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->inventory_selection_vertex_buffer, &renderer->inventory_selection_vertex_memory);
 
     const uint32_t INVENTORY_BG_VERTEX_COUNT = 6;
-    create_buffer(renderer->device, renderer->physical_device, sizeof(Vertex) * INVENTORY_BG_VERTEX_COUNT,
+    buffer_create(renderer->device, renderer->physical_device, sizeof(Vertex) * INVENTORY_BG_VERTEX_COUNT,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->inventory_bg_vertex_buffer, &renderer->inventory_bg_vertex_memory);
 
     renderer->instance_capacity = INITIAL_INSTANCE_CAPACITY;
-    create_buffer(renderer->device, renderer->physical_device,
+    buffer_create(renderer->device, renderer->physical_device,
                   (VkDeviceSize)renderer->instance_capacity * sizeof(InstanceData),
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -1059,11 +1063,8 @@ Renderer *renderer_create(void *display,
         {{ 0.0f,  crosshair_size, 0.0f}, {1.0f, 0.0f}},
     };
 
-    void *crosshair_mapped = NULL;
     VkDeviceSize crosshair_size_bytes = (VkDeviceSize)sizeof(crosshair_vertices);
-    VK_CHECK(vkMapMemory(renderer->device, renderer->crosshair_vertex_memory, 0, crosshair_size_bytes, 0, &crosshair_mapped));
-    memcpy(crosshair_mapped, crosshair_vertices, (size_t)crosshair_size_bytes);
-    vkUnmapMemory(renderer->device, renderer->crosshair_vertex_memory);
+    buffer_upload(renderer->device, renderer->crosshair_vertex_memory, crosshair_vertices, crosshair_size_bytes);
 
     float inv_h_step = 0.0f;
     float inv_v_step = 0.0f;
@@ -1075,11 +1076,8 @@ Renderer *renderer_create(void *display,
                                    &renderer->inventory_vertex_count,
                                    &inv_h_step,
                                    &inv_v_step);
-    void *inventory_mapped = NULL;
     VkDeviceSize inventory_size_bytes = (VkDeviceSize)renderer->inventory_vertex_count * sizeof(Vertex);
-    VK_CHECK(vkMapMemory(renderer->device, renderer->inventory_vertex_memory, 0, inventory_size_bytes, 0, &inventory_mapped));
-    memcpy(inventory_mapped, inventory_vertices, (size_t)inventory_size_bytes);
-    vkUnmapMemory(renderer->device, renderer->inventory_vertex_memory);
+    buffer_upload(renderer->device, renderer->inventory_vertex_memory, inventory_vertices, inventory_size_bytes);
 
     Vertex icon_vertices[INVENTORY_ICON_VERTEX_COUNT];
     player_inventory_icon_vertices(inv_h_step, inv_v_step,
@@ -1087,11 +1085,8 @@ Renderer *renderer_create(void *display,
                                    INVENTORY_ICON_VERTEX_COUNT,
                                    &renderer->inventory_icon_vertex_count);
 
-    void *icon_mapped = NULL;
     VkDeviceSize icon_size_bytes = (VkDeviceSize)renderer->inventory_icon_vertex_count * sizeof(Vertex);
-    VK_CHECK(vkMapMemory(renderer->device, renderer->inventory_icon_vertex_memory, 0, icon_size_bytes, 0, &icon_mapped));
-    memcpy(icon_mapped, icon_vertices, (size_t)icon_size_bytes);
-    vkUnmapMemory(renderer->device, renderer->inventory_icon_vertex_memory);
+    buffer_upload(renderer->device, renderer->inventory_icon_vertex_memory, icon_vertices, icon_size_bytes);
 
     return renderer;
 }
@@ -1251,17 +1246,16 @@ void renderer_draw_frame(Renderer *renderer,
         vkFreeMemory(renderer->device, renderer->instance_memory, NULL);
 
         renderer->instance_capacity = new_cap;
-        create_buffer(renderer->device, renderer->physical_device,
+        buffer_create(renderer->device, renderer->physical_device,
                       (VkDeviceSize)renderer->instance_capacity * sizeof(InstanceData),
                       VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                       VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                       &renderer->instance_buffer, &renderer->instance_memory);
     }
 
-    InstanceData *instances = NULL;
-    VK_CHECK(vkMapMemory(renderer->device, renderer->instance_memory, 0,
-                         (VkDeviceSize)total_instances * sizeof(InstanceData),
-                         0, (void **)&instances));
+    InstanceData *instances = (InstanceData *)buffer_map(renderer->device,
+                                                         renderer->instance_memory,
+                                                         (VkDeviceSize)total_instances * sizeof(InstanceData));
 
     uint32_t w = 0;
     for (int ci = 0; ci < world->chunk_count; ++ci) {
@@ -1315,11 +1309,8 @@ void renderer_draw_frame(Renderer *renderer,
         bg_vertices[5] = (Vertex){{right, bottom, 0.0f}, {1.0f, 1.0f}};
 
         inventory_bg_vertex_count = INVENTORY_BG_VERTEX_COUNT;
-        void *bg_mapped = NULL;
         VkDeviceSize bg_size_bytes = (VkDeviceSize)inventory_bg_vertex_count * sizeof(Vertex);
-        VK_CHECK(vkMapMemory(renderer->device, renderer->inventory_bg_vertex_memory, 0, bg_size_bytes, 0, &bg_mapped));
-        memcpy(bg_mapped, bg_vertices, (size_t)bg_size_bytes);
-        vkUnmapMemory(renderer->device, renderer->inventory_bg_vertex_memory);
+        buffer_upload(renderer->device, renderer->inventory_bg_vertex_memory, bg_vertices, bg_size_bytes);
 
         const uint32_t INVENTORY_SELECTION_VERTEX_COUNT = 8;
         Vertex selection_vertices[INVENTORY_SELECTION_VERTEX_COUNT];
@@ -1329,11 +1320,8 @@ void renderer_draw_frame(Renderer *renderer,
                                              INVENTORY_SELECTION_VERTEX_COUNT,
                                              &inventory_selection_vertex_count);
         if (inventory_selection_vertex_count > 0) {
-            void *selection_mapped = NULL;
             VkDeviceSize selection_size_bytes = (VkDeviceSize)inventory_selection_vertex_count * sizeof(Vertex);
-            VK_CHECK(vkMapMemory(renderer->device, renderer->inventory_selection_vertex_memory, 0, selection_size_bytes, 0, &selection_mapped));
-            memcpy(selection_mapped, selection_vertices, (size_t)selection_size_bytes);
-            vkUnmapMemory(renderer->device, renderer->inventory_selection_vertex_memory);
+            buffer_upload(renderer->device, renderer->inventory_selection_vertex_memory, selection_vertices, selection_size_bytes);
         }
 
         const uint32_t INVENTORY_COUNT_MAX_VERTICES = 1500;
@@ -1344,15 +1332,12 @@ void renderer_draw_frame(Renderer *renderer,
                                             INVENTORY_COUNT_MAX_VERTICES);
 
         if (inventory_count_vertex_count > 0) {
-            void *count_mapped = NULL;
             VkDeviceSize count_size_bytes = (VkDeviceSize)inventory_count_vertex_count * sizeof(Vertex);
-            VK_CHECK(vkMapMemory(renderer->device, renderer->inventory_count_vertex_memory, 0, count_size_bytes, 0, &count_mapped));
-            memcpy(count_mapped, count_vertices, (size_t)count_size_bytes);
-            vkUnmapMemory(renderer->device, renderer->inventory_count_vertex_memory);
+            buffer_upload(renderer->device, renderer->inventory_count_vertex_memory, count_vertices, count_size_bytes);
         }
     }
 
-    vkUnmapMemory(renderer->device, renderer->instance_memory);
+    buffer_unmap(renderer->device, renderer->instance_memory);
 
     PushConstants pc = {0};
     pc.view = camera_view_matrix(camera);
