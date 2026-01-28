@@ -194,7 +194,7 @@ static void buffer_upload(VkDevice device, VkDeviceMemory memory, const void *da
     buffer_unmap(device, memory);
 }
 
-static void create_image(VkDevice device,
+static void image_create(VkDevice device,
                          VkPhysicalDevice physical_device,
                          uint32_t width,
                          uint32_t height,
@@ -334,7 +334,7 @@ void texture_create(VkDevice device,
     memcpy(mapped, pixels, (size_t)image_size);
     vkUnmapMemory(device, staging_memory);
 
-    create_image(device,
+    image_create(device,
                  physical_device,
                  (uint32_t)width,
                  (uint32_t)height,
@@ -800,7 +800,7 @@ Renderer *renderer_create(void *display,
     free(swapchain_images);
 
     VkFormat swap_depth_format = VK_FORMAT_D32_SFLOAT;
-    create_image(swap_device,
+    image_create(swap_device,
                  swap_physical_device,
                  swap_extent.width,
                  swap_extent.height,
