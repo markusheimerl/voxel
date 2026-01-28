@@ -24,22 +24,6 @@
         }                                                                         \
     } while (0)
 
-#define VK_DESTROY(device, type, handle)                                          \
-    do {                                                                          \
-        if ((handle) != VK_NULL_HANDLE) {                                         \
-            vkDestroy##type((device), (handle), NULL);                            \
-            (handle) = VK_NULL_HANDLE;                                            \
-        }                                                                         \
-    } while (0)
-
-#define CREATE_BUFFER_WITH_DATA(dev, pdev, data, usage, buf, mem)                \
-    do {                                                                          \
-        create_buffer((dev), (pdev), sizeof(data), (usage),                       \
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, \
-                     (buf), (mem));                                               \
-        upload_buffer_data((dev), *(mem), (data), sizeof(data));                 \
-    } while (0)
-
 /* -------------------------------------------------------------------------- */
 /* Vulkan Error Helpers                                                       */
 /* -------------------------------------------------------------------------- */
@@ -663,21 +647,33 @@ Renderer *renderer_create(void *display,
                        &renderer->textures_height[i]);
     }
 
-    CREATE_BUFFER_WITH_DATA(renderer->device, renderer->physical_device, BLOCK_VERTICES,
-                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                            &renderer->block_vertex_buffer, &renderer->block_vertex_memory);
+    create_buffer(renderer->device, renderer->physical_device, sizeof(BLOCK_VERTICES),
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &renderer->block_vertex_buffer, &renderer->block_vertex_memory);
+    upload_buffer_data(renderer->device, renderer->block_vertex_memory,
+                       BLOCK_VERTICES, sizeof(BLOCK_VERTICES));
 
-    CREATE_BUFFER_WITH_DATA(renderer->device, renderer->physical_device, BLOCK_INDICES,
-                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                            &renderer->block_index_buffer, &renderer->block_index_memory);
+    create_buffer(renderer->device, renderer->physical_device, sizeof(BLOCK_INDICES),
+                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &renderer->block_index_buffer, &renderer->block_index_memory);
+    upload_buffer_data(renderer->device, renderer->block_index_memory,
+                       BLOCK_INDICES, sizeof(BLOCK_INDICES));
 
-    CREATE_BUFFER_WITH_DATA(renderer->device, renderer->physical_device, EDGE_VERTICES,
-                            VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                            &renderer->edge_vertex_buffer, &renderer->edge_vertex_memory);
+    create_buffer(renderer->device, renderer->physical_device, sizeof(EDGE_VERTICES),
+                  VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &renderer->edge_vertex_buffer, &renderer->edge_vertex_memory);
+    upload_buffer_data(renderer->device, renderer->edge_vertex_memory,
+                       EDGE_VERTICES, sizeof(EDGE_VERTICES));
 
-    CREATE_BUFFER_WITH_DATA(renderer->device, renderer->physical_device, EDGE_INDICES,
-                            VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                            &renderer->edge_index_buffer, &renderer->edge_index_memory);
+    create_buffer(renderer->device, renderer->physical_device, sizeof(EDGE_INDICES),
+                  VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &renderer->edge_index_buffer, &renderer->edge_index_memory);
+    upload_buffer_data(renderer->device, renderer->edge_index_memory,
+                       EDGE_INDICES, sizeof(EDGE_INDICES));
 
     create_buffer(renderer->device, renderer->physical_device, sizeof(Vertex) * 4,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -1113,7 +1109,7 @@ void renderer_destroy(Renderer *renderer) {
         renderer->swapchain_command_buffers = NULL;
     }
 
-    VK_DESTROY(device, DescriptorPool, renderer->swapchain_descriptor_pool);
+    vkDestroyDescriptorPool(device, renderer->swapchain_descriptor_pool, NULL);
 
     if (renderer->swapchain_framebuffers) {
         for (uint32_t i = 0; i < renderer->swapchain_image_count; ++i) {
@@ -1123,15 +1119,15 @@ void renderer_destroy(Renderer *renderer) {
         renderer->swapchain_framebuffers = NULL;
     }
 
-    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_crosshair);
-    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_overlay);
-    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_wireframe);
-    VK_DESTROY(device, Pipeline, renderer->swapchain_pipeline_solid);
+    vkDestroyPipeline(device, renderer->swapchain_pipeline_crosshair, NULL);
+    vkDestroyPipeline(device, renderer->swapchain_pipeline_overlay, NULL);
+    vkDestroyPipeline(device, renderer->swapchain_pipeline_wireframe, NULL);
+    vkDestroyPipeline(device, renderer->swapchain_pipeline_solid, NULL);
 
-    VK_DESTROY(device, RenderPass, renderer->swapchain_render_pass);
+    vkDestroyRenderPass(device, renderer->swapchain_render_pass, NULL);
 
-    VK_DESTROY(device, ImageView, renderer->swapchain_depth_view);
-    VK_DESTROY(device, Image, renderer->swapchain_depth_image);
+    vkDestroyImageView(device, renderer->swapchain_depth_view, NULL);
+    vkDestroyImage(device, renderer->swapchain_depth_image, NULL);
     if (renderer->swapchain_depth_memory != VK_NULL_HANDLE) {
         vkFreeMemory(device, renderer->swapchain_depth_memory, NULL);
         renderer->swapchain_depth_memory = VK_NULL_HANDLE;
@@ -1148,7 +1144,7 @@ void renderer_destroy(Renderer *renderer) {
     free(renderer->swapchain_images);
     renderer->swapchain_images = NULL;
 
-    VK_DESTROY(device, SwapchainKHR, renderer->swapchain);
+    vkDestroySwapchainKHR(device, renderer->swapchain, NULL);
 
     free(renderer->swapchain_descriptor_sets_normal);
     free(renderer->swapchain_descriptor_sets_highlight);
