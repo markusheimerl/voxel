@@ -178,26 +178,6 @@ void create_buffer(VkDevice device,
     VK_CHECK(vkBindBufferMemory(device, *buffer, *memory, 0));
 }
 
-void upload_buffer_data(VkDevice device, VkDeviceMemory memory, const void *data, size_t size) {
-    void *mapped;
-    VK_CHECK(vkMapMemory(device, memory, 0, size, 0, &mapped));
-    memcpy(mapped, data, size);
-    vkUnmapMemory(device, memory);
-}
-
-static void create_image_view(VkDevice device, VkImage image, VkFormat format,
-                               VkImageAspectFlags aspect_mask, VkImageView *view) {
-    VkImageViewCreateInfo view_info = {0};
-    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    view_info.image = image;
-    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    view_info.format = format;
-    view_info.subresourceRange.aspectMask = aspect_mask;
-    view_info.subresourceRange.levelCount = 1;
-    view_info.subresourceRange.layerCount = 1;
-    VK_CHECK(vkCreateImageView(device, &view_info, NULL, view));
-}
-
 static void create_image(VkDevice device,
                          VkPhysicalDevice physical_device,
                          uint32_t width,
@@ -411,8 +391,16 @@ void texture_create(VkDevice device,
     vkDestroyBuffer(device, staging_buffer, NULL);
     vkFreeMemory(device, staging_memory, NULL);
 
-    create_image_view(device, *image, VK_FORMAT_R8G8B8A8_SRGB,
-                      VK_IMAGE_ASPECT_COLOR_BIT, view);
+    VkImageViewCreateInfo view_info = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                                       .image = *image,
+                                       .viewType = VK_IMAGE_VIEW_TYPE_2D,
+                                       .format = VK_FORMAT_R8G8B8A8_SRGB,
+                                       .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                            .baseMipLevel = 0,
+                                                            .levelCount = 1,
+                                                            .baseArrayLayer = 0,
+                                                            .layerCount = 1}};
+    VK_CHECK(vkCreateImageView(device, &view_info, NULL, view));
 
     VkSamplerCreateInfo sampler_info = {.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO,
                                         .magFilter = VK_FILTER_NEAREST,
@@ -624,29 +612,41 @@ Renderer *renderer_create(void *display,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->block_vertex_buffer, &renderer->block_vertex_memory);
-    upload_buffer_data(renderer->device, renderer->block_vertex_memory,
-                       BLOCK_VERTICES, sizeof(BLOCK_VERTICES));
+    void *block_vertex_mapped = NULL;
+    VkDeviceSize block_vertex_size = (VkDeviceSize)sizeof(BLOCK_VERTICES);
+    VK_CHECK(vkMapMemory(renderer->device, renderer->block_vertex_memory, 0, block_vertex_size, 0, &block_vertex_mapped));
+    memcpy(block_vertex_mapped, BLOCK_VERTICES, (size_t)block_vertex_size);
+    vkUnmapMemory(renderer->device, renderer->block_vertex_memory);
 
     create_buffer(renderer->device, renderer->physical_device, sizeof(BLOCK_INDICES),
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->block_index_buffer, &renderer->block_index_memory);
-    upload_buffer_data(renderer->device, renderer->block_index_memory,
-                       BLOCK_INDICES, sizeof(BLOCK_INDICES));
+    void *block_index_mapped = NULL;
+    VkDeviceSize block_index_size = (VkDeviceSize)sizeof(BLOCK_INDICES);
+    VK_CHECK(vkMapMemory(renderer->device, renderer->block_index_memory, 0, block_index_size, 0, &block_index_mapped));
+    memcpy(block_index_mapped, BLOCK_INDICES, (size_t)block_index_size);
+    vkUnmapMemory(renderer->device, renderer->block_index_memory);
 
     create_buffer(renderer->device, renderer->physical_device, sizeof(EDGE_VERTICES),
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->edge_vertex_buffer, &renderer->edge_vertex_memory);
-    upload_buffer_data(renderer->device, renderer->edge_vertex_memory,
-                       EDGE_VERTICES, sizeof(EDGE_VERTICES));
+    void *edge_vertex_mapped = NULL;
+    VkDeviceSize edge_vertex_size = (VkDeviceSize)sizeof(EDGE_VERTICES);
+    VK_CHECK(vkMapMemory(renderer->device, renderer->edge_vertex_memory, 0, edge_vertex_size, 0, &edge_vertex_mapped));
+    memcpy(edge_vertex_mapped, EDGE_VERTICES, (size_t)edge_vertex_size);
+    vkUnmapMemory(renderer->device, renderer->edge_vertex_memory);
 
     create_buffer(renderer->device, renderer->physical_device, sizeof(EDGE_INDICES),
                   VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
                   VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                   &renderer->edge_index_buffer, &renderer->edge_index_memory);
-    upload_buffer_data(renderer->device, renderer->edge_index_memory,
-                       EDGE_INDICES, sizeof(EDGE_INDICES));
+    void *edge_index_mapped = NULL;
+    VkDeviceSize edge_index_size = (VkDeviceSize)sizeof(EDGE_INDICES);
+    VK_CHECK(vkMapMemory(renderer->device, renderer->edge_index_memory, 0, edge_index_size, 0, &edge_index_mapped));
+    memcpy(edge_index_mapped, EDGE_INDICES, (size_t)edge_index_size);
+    vkUnmapMemory(renderer->device, renderer->edge_index_memory);
 
     create_buffer(renderer->device, renderer->physical_device, sizeof(Vertex) * 4,
                   VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -782,8 +782,16 @@ Renderer *renderer_create(void *display,
     renderer->swapchain_extent = swap_extent;
     renderer->swapchain_image_views = malloc(sizeof(VkImageView) * swap_image_count);
     for (uint32_t i = 0; i < swap_image_count; ++i) {
-        create_image_view(swap_device, swapchain_images[i], swap_surface_format.format,
-                          VK_IMAGE_ASPECT_COLOR_BIT, &renderer->swapchain_image_views[i]);
+        VkImageViewCreateInfo swap_view_info = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                                                .image = swapchain_images[i],
+                                                .viewType = VK_IMAGE_VIEW_TYPE_2D,
+                                                .format = swap_surface_format.format,
+                                                .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                     .baseMipLevel = 0,
+                                                                     .levelCount = 1,
+                                                                     .baseArrayLayer = 0,
+                                                                     .layerCount = 1}};
+        VK_CHECK(vkCreateImageView(swap_device, &swap_view_info, NULL, &renderer->swapchain_image_views[i]));
     }
     free(swapchain_images);
 
@@ -798,7 +806,16 @@ Renderer *renderer_create(void *display,
                  VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                  &renderer->swapchain_depth_image,
                  &renderer->swapchain_depth_memory);
-    create_image_view(swap_device, renderer->swapchain_depth_image, swap_depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, &renderer->swapchain_depth_view);
+    VkImageViewCreateInfo depth_view_info = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                                             .image = renderer->swapchain_depth_image,
+                                             .viewType = VK_IMAGE_VIEW_TYPE_2D,
+                                             .format = swap_depth_format,
+                                             .subresourceRange = {.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT,
+                                                                  .baseMipLevel = 0,
+                                                                  .levelCount = 1,
+                                                                  .baseArrayLayer = 0,
+                                                                  .layerCount = 1}};
+    VK_CHECK(vkCreateImageView(swap_device, &depth_view_info, NULL, &renderer->swapchain_depth_view));
 
     VkAttachmentDescription swap_attachments[2] = {
         {.format = swap_surface_format.format, .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -1042,8 +1059,11 @@ Renderer *renderer_create(void *display,
         {{ 0.0f,  crosshair_size, 0.0f}, {1.0f, 0.0f}},
     };
 
-    upload_buffer_data(renderer->device, renderer->crosshair_vertex_memory,
-                       crosshair_vertices, sizeof(crosshair_vertices));
+    void *crosshair_mapped = NULL;
+    VkDeviceSize crosshair_size_bytes = (VkDeviceSize)sizeof(crosshair_vertices);
+    VK_CHECK(vkMapMemory(renderer->device, renderer->crosshair_vertex_memory, 0, crosshair_size_bytes, 0, &crosshair_mapped));
+    memcpy(crosshair_mapped, crosshair_vertices, (size_t)crosshair_size_bytes);
+    vkUnmapMemory(renderer->device, renderer->crosshair_vertex_memory);
 
     float inv_h_step = 0.0f;
     float inv_v_step = 0.0f;
@@ -1055,8 +1075,11 @@ Renderer *renderer_create(void *display,
                                    &renderer->inventory_vertex_count,
                                    &inv_h_step,
                                    &inv_v_step);
-    upload_buffer_data(renderer->device, renderer->inventory_vertex_memory,
-                       inventory_vertices, renderer->inventory_vertex_count * sizeof(Vertex));
+    void *inventory_mapped = NULL;
+    VkDeviceSize inventory_size_bytes = (VkDeviceSize)renderer->inventory_vertex_count * sizeof(Vertex);
+    VK_CHECK(vkMapMemory(renderer->device, renderer->inventory_vertex_memory, 0, inventory_size_bytes, 0, &inventory_mapped));
+    memcpy(inventory_mapped, inventory_vertices, (size_t)inventory_size_bytes);
+    vkUnmapMemory(renderer->device, renderer->inventory_vertex_memory);
 
     Vertex icon_vertices[INVENTORY_ICON_VERTEX_COUNT];
     player_inventory_icon_vertices(inv_h_step, inv_v_step,
@@ -1064,8 +1087,11 @@ Renderer *renderer_create(void *display,
                                    INVENTORY_ICON_VERTEX_COUNT,
                                    &renderer->inventory_icon_vertex_count);
 
-    upload_buffer_data(renderer->device, renderer->inventory_icon_vertex_memory,
-                       icon_vertices, renderer->inventory_icon_vertex_count * sizeof(Vertex));
+    void *icon_mapped = NULL;
+    VkDeviceSize icon_size_bytes = (VkDeviceSize)renderer->inventory_icon_vertex_count * sizeof(Vertex);
+    VK_CHECK(vkMapMemory(renderer->device, renderer->inventory_icon_vertex_memory, 0, icon_size_bytes, 0, &icon_mapped));
+    memcpy(icon_mapped, icon_vertices, (size_t)icon_size_bytes);
+    vkUnmapMemory(renderer->device, renderer->inventory_icon_vertex_memory);
 
     return renderer;
 }
@@ -1289,8 +1315,11 @@ void renderer_draw_frame(Renderer *renderer,
         bg_vertices[5] = (Vertex){{right, bottom, 0.0f}, {1.0f, 1.0f}};
 
         inventory_bg_vertex_count = INVENTORY_BG_VERTEX_COUNT;
-        upload_buffer_data(renderer->device, renderer->inventory_bg_vertex_memory,
-                   bg_vertices, inventory_bg_vertex_count * sizeof(Vertex));
+        void *bg_mapped = NULL;
+        VkDeviceSize bg_size_bytes = (VkDeviceSize)inventory_bg_vertex_count * sizeof(Vertex);
+        VK_CHECK(vkMapMemory(renderer->device, renderer->inventory_bg_vertex_memory, 0, bg_size_bytes, 0, &bg_mapped));
+        memcpy(bg_mapped, bg_vertices, (size_t)bg_size_bytes);
+        vkUnmapMemory(renderer->device, renderer->inventory_bg_vertex_memory);
 
         const uint32_t INVENTORY_SELECTION_VERTEX_COUNT = 8;
         Vertex selection_vertices[INVENTORY_SELECTION_VERTEX_COUNT];
@@ -1300,8 +1329,11 @@ void renderer_draw_frame(Renderer *renderer,
                                              INVENTORY_SELECTION_VERTEX_COUNT,
                                              &inventory_selection_vertex_count);
         if (inventory_selection_vertex_count > 0) {
-            upload_buffer_data(renderer->device, renderer->inventory_selection_vertex_memory,
-                               selection_vertices, inventory_selection_vertex_count * sizeof(Vertex));
+            void *selection_mapped = NULL;
+            VkDeviceSize selection_size_bytes = (VkDeviceSize)inventory_selection_vertex_count * sizeof(Vertex);
+            VK_CHECK(vkMapMemory(renderer->device, renderer->inventory_selection_vertex_memory, 0, selection_size_bytes, 0, &selection_mapped));
+            memcpy(selection_mapped, selection_vertices, (size_t)selection_size_bytes);
+            vkUnmapMemory(renderer->device, renderer->inventory_selection_vertex_memory);
         }
 
         const uint32_t INVENTORY_COUNT_MAX_VERTICES = 1500;
@@ -1312,8 +1344,11 @@ void renderer_draw_frame(Renderer *renderer,
                                             INVENTORY_COUNT_MAX_VERTICES);
 
         if (inventory_count_vertex_count > 0) {
-            upload_buffer_data(renderer->device, renderer->inventory_count_vertex_memory,
-                               count_vertices, inventory_count_vertex_count * sizeof(Vertex));
+            void *count_mapped = NULL;
+            VkDeviceSize count_size_bytes = (VkDeviceSize)inventory_count_vertex_count * sizeof(Vertex);
+            VK_CHECK(vkMapMemory(renderer->device, renderer->inventory_count_vertex_memory, 0, count_size_bytes, 0, &count_mapped));
+            memcpy(count_mapped, count_vertices, (size_t)count_size_bytes);
+            vkUnmapMemory(renderer->device, renderer->inventory_count_vertex_memory);
         }
     }
 
