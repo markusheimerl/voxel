@@ -588,7 +588,8 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
     // Textures
     const char *tex_files[BLOCK_TYPE_COUNT] = {
         "textures/dirt.png", "textures/stone.png", "textures/grass.png",
-        "textures/sand.png", "textures/water.png", "textures/wood.png", "textures/leaves.png"
+        "textures/sand.png", "textures/water.png", "textures/wood.png", "textures/leaves.png",
+        "textures/planks.png"
     };
     
     for (uint32_t i = 0; i < BLOCK_TYPE_COUNT; i++) {

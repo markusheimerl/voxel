@@ -1105,6 +1105,21 @@ uint32_t player_inventory_icon_instances(const Player *player,
         icon_index++;
     }
 
+    // Crafting result slot
+    if (player->inventory_open) {
+        CraftingResult craft_result = player_get_crafting_result(player);
+        if (craft_result.valid) {
+            if (out_instances && icon_index < max_instances) {
+                float center_x = (layout.result_left + layout.result_right) * 0.5f;
+                float center_y = (layout.result_bottom + layout.result_top) * 0.5f;
+                out_instances[icon_index] = (InstanceData){
+                    center_x, center_y, 0.0f, (uint32_t)craft_result.result_type
+                };
+            }
+            icon_index++;
+        }
+    }
+
     if (player->inventory_open && player->inventory_mouse_valid && player->inventory_held_count > 0) {
         if (out_instances && icon_index < max_instances) {
             out_instances[icon_index] = (InstanceData){
@@ -1210,6 +1225,41 @@ uint32_t player_inventory_count_vertices(const Player *player,
         }
     }
 
+    // Crafting result slot count
+    if (player->inventory_open) {
+        CraftingResult craft_result = player_get_crafting_result(player);
+        if (craft_result.valid && craft_result.result_count > 0) {
+            float center_x = (layout.result_left + layout.result_right) * 0.5f;
+            float center_y = (layout.result_bottom + layout.result_top) * 0.5f;
+            float cell_left = center_x - h_step * 0.5f;
+            float cell_top = center_y + v_step * 0.5f;
+
+            float digit_w = h_step * 0.16f;
+            float digit_h = v_step * 0.35f;
+            float gap = digit_w * 0.25f;
+
+            uint8_t count = craft_result.result_count;
+            int d0 = count % 10;
+            int d1 = (count / 10) % 10;
+            int d2 = (count / 100) % 10;
+
+            int digits[3];
+            int digit_count = 0;
+            if (count >= 100) { digits[digit_count++] = d2; }
+            if (count >= 10) { digits[digit_count++] = d1; }
+            digits[digit_count++] = d0;
+
+            float total_w = (float)digit_count * digit_w + (float)(digit_count - 1) * gap;
+            float start_x = cell_left + h_step - total_w - h_step * 0.08f;
+            float start_y = cell_top - v_step + v_step * 0.12f;
+
+            for (int i = 0; i < digit_count; ++i) {
+                append_digit(out_vertices, &count_vertices, max_vertices,
+                             digits[i], start_x + i * (digit_w + gap), start_y, digit_w, digit_h);
+            }
+        }
+    }
+
     if (player->inventory_open && player->inventory_mouse_valid && player->inventory_held_count > 0) {
         uint8_t count = player->inventory_held_count;
         int d0 = count % 10;
@@ -1242,4 +1292,92 @@ uint32_t player_inventory_count_vertices(const Player *player,
     }
 
     return count_vertices;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Crafting Recipes                                                           */
+/* -------------------------------------------------------------------------- */
+
+CraftingResult player_get_crafting_result(const Player *player) {
+    CraftingResult result = {false, 0, 0};
+    if (!player) return result;
+
+    // Count wood blocks in crafting grid
+    int wood_count = 0;
+    int empty_count = 0;
+
+    for (int i = 0; i < CRAFTING_SIZE; ++i) {
+        if (player->crafting_grid_counts[i] > 0 && player->crafting_grid[i] == BLOCK_WOOD) {
+            wood_count++;
+        } else if (player->crafting_grid_counts[i] == 0) {
+            empty_count++;
+        }
+    }
+
+    // Recipe: 1 wood -> 4 planks (wood can be in any slot)
+    if (wood_count == 1 && empty_count == 8) {
+        result.valid = true;
+        result.result_type = BLOCK_PLANKS;
+        result.result_count = 4;
+        return result;
+    }
+
+    return result;
+}
+
+int player_crafting_result_slot_from_mouse(float aspect,
+                                           float mouse_x,
+                                           float mouse_y,
+                                           float window_w,
+                                           float window_h) {
+    if (window_w <= 0.0f || window_h <= 0.0f) return -1;
+
+    float ndc_x = (mouse_x / window_w) * 2.0f - 1.0f;
+    float ndc_y = 1.0f - (mouse_y / window_h) * 2.0f;
+
+    InventoryLayout layout = calculate_inventory_layout(aspect);
+
+    float left = layout.result_left;
+    float right = layout.result_right;
+    float bottom = layout.result_bottom;
+    float top = layout.result_top;
+
+    if (ndc_x >= left && ndc_x <= right && ndc_y >= bottom && ndc_y <= top) {
+        return 0; // Result slot exists
+    }
+
+    return -1;
+}
+
+void player_crafting_result_handle_click(Player *player) {
+    if (!player) return;
+
+    CraftingResult craft_result = player_get_crafting_result(player);
+    if (!craft_result.valid) return;
+
+    // If holding items, check if they match
+    if (player->inventory_held_count > 0) {
+        if (player->inventory_held_type != craft_result.result_type) return;
+
+        uint16_t total = (uint16_t)player->inventory_held_count + (uint16_t)craft_result.result_count;
+        if (total > UINT8_MAX) return; // Can't pick up, would overflow
+
+        player->inventory_held_count = (uint8_t)total;
+    } else {
+        // Pick up the result
+        player->inventory_held_type = craft_result.result_type;
+        player->inventory_held_count = craft_result.result_count;
+        player->inventory_held_origin_valid = false;
+    }
+
+    // Consume one wood from the crafting grid
+    for (int i = 0; i < CRAFTING_SIZE; ++i) {
+        if (player->crafting_grid_counts[i] > 0 && player->crafting_grid[i] == BLOCK_WOOD) {
+            player->crafting_grid_counts[i]--;
+            if (player->crafting_grid_counts[i] == 0) {
+                player->crafting_grid[i] = 0;
+            }
+            break;
+        }
+    }
 }

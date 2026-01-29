@@ -77,6 +77,20 @@ void player_inventory_handle_click(Player *player, int slot);
 void player_inventory_handle_right_click(Player *player, int slot);
 void player_inventory_cancel_held(Player *player);
 
+typedef struct {
+    bool valid;
+    uint8_t result_type;
+    uint8_t result_count;
+} CraftingResult;
+
+CraftingResult player_get_crafting_result(const Player *player);
+int player_crafting_result_slot_from_mouse(float aspect,
+                                           float mouse_x,
+                                           float mouse_y,
+                                           float window_w,
+                                           float window_h);
+void player_crafting_result_handle_click(Player *player);
+
 RayHit raycast_blocks(World *world, Vec3 origin, Vec3 direction, float max_distance);
 
 /* -------------------------------------------------------------------------- */

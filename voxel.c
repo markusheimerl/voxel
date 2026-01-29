@@ -160,6 +160,17 @@ int main(void) {
                         event.data.mouse_button.button == IO_MOUSE_BUTTON_MIDDLE ||
                         event.data.mouse_button.button == IO_MOUSE_BUTTON_RIGHT) {
                         float aspect = (float)window_height / (float)window_width;
+                        int result_slot = player_crafting_result_slot_from_mouse(
+                            aspect,
+                            (float)event.data.mouse_button.x,
+                            (float)event.data.mouse_button.y,
+                            (float)window_width,
+                            (float)window_height);
+                        if (result_slot >= 0 && event.data.mouse_button.button == IO_MOUSE_BUTTON_LEFT) {
+                            player_crafting_result_handle_click(&player);
+                            break;
+                        }
+
                         int slot = player_inventory_slot_from_mouse(aspect,
                                                                      (float)event.data.mouse_button.x,
                                                                      (float)event.data.mouse_button.y,
