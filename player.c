@@ -486,6 +486,212 @@ static void append_line(Vertex *verts, uint32_t *count, uint32_t max,
     verts[(*count)++] = (Vertex){{x1, y1, 0.0f}, {0.0f, 0.0f}};
 }
 
+/* -------------------------------------------------------------------------- */
+/* Inventory Layout System                                                    */
+/* -------------------------------------------------------------------------- */
+
+typedef struct {
+    float inv_left, inv_right, inv_bottom, inv_top;
+    float craft_left, craft_right, craft_bottom, craft_top;
+    float arrow_left, arrow_right, arrow_bottom, arrow_top;
+    float result_left, result_right, result_bottom, result_top;
+    float cell_w, cell_h;
+} InventoryLayout;
+
+static InventoryLayout calculate_inventory_layout(float aspect) {
+    InventoryLayout layout;
+
+    /* Base inventory dimensions */
+    const float inv_base_half_height = 0.13f;
+    const float inv_aspect = (float)INVENTORY_COLS / (float)INVENTORY_ROWS;
+    const float inv_half_width = inv_base_half_height * aspect * inv_aspect;
+    const float inv_half_height = inv_base_half_height;
+
+    /* Cell size */
+    layout.cell_w = (inv_half_width * 2.0f) / (float)INVENTORY_COLS;
+    layout.cell_h = (inv_half_height * 2.0f) / (float)INVENTORY_ROWS;
+
+    /* Gap between crafting and inventory */
+    const float gap = layout.cell_h * 0.7f;
+
+    /* Crafting dimensions (3x3, same cell size) */
+    const float craft_width = layout.cell_w * (float)CRAFTING_COLS;
+    const float craft_height = layout.cell_h * (float)CRAFTING_ROWS;
+
+    /* Arrow dimensions */
+    const float arrow_width = layout.cell_w * 1.2f;
+    const float arrow_height = layout.cell_h;
+
+    /* Result slot dimensions */
+    const float result_width = layout.cell_w;
+    const float result_height = layout.cell_h;
+
+    /* Calculate total height */
+    const float total_height = craft_height + gap + inv_half_height * 2.0f;
+
+    /* Center everything vertically */
+    const float top_edge = total_height * 0.5f;
+
+    /* Main inventory position (bottom part) */
+    layout.inv_left = -inv_half_width;
+    layout.inv_right = inv_half_width;
+    layout.inv_bottom = top_edge - total_height;
+    layout.inv_top = layout.inv_bottom + inv_half_height * 2.0f;
+
+    /* Crafting grid position (top part, left-aligned with inventory) */
+    layout.craft_left = layout.inv_left;
+    layout.craft_right = layout.craft_left + craft_width;
+    layout.craft_bottom = layout.inv_top + gap;
+    layout.craft_top = layout.craft_bottom + craft_height;
+
+    /* Arrow position (to the right of crafting grid) */
+    layout.arrow_left = layout.craft_right + layout.cell_w * 0.4f;
+    layout.arrow_right = layout.arrow_left + arrow_width;
+    float craft_center_y = (layout.craft_top + layout.craft_bottom) * 0.5f;
+    layout.arrow_bottom = craft_center_y - arrow_height * 0.5f;
+    layout.arrow_top = craft_center_y + arrow_height * 0.5f;
+
+    /* Result slot position (to the right of arrow) */
+    layout.result_left = layout.arrow_right + layout.cell_w * 0.4f;
+    layout.result_right = layout.result_left + result_width;
+    layout.result_bottom = craft_center_y - result_height * 0.5f;
+    layout.result_top = craft_center_y + result_height * 0.5f;
+
+    return layout;
+}
+
+void player_inventory_background_vertices(float aspect, Vertex *out_vertices, uint32_t max_vertices, uint32_t *out_count) {
+    if (!out_vertices || !out_count || max_vertices < 18) return;
+    
+    InventoryLayout layout = calculate_inventory_layout(aspect);
+    
+    uint32_t count = 0;
+    
+    // Inventory background (exact grid size)
+    float inv_left = layout.inv_left;
+    float inv_right = layout.inv_right;
+    float inv_bottom = layout.inv_bottom;
+    float inv_top = layout.inv_top;
+    
+    out_vertices[count++] = (Vertex){{inv_left, inv_top, 0}, {0, 0}};
+    out_vertices[count++] = (Vertex){{inv_right, inv_bottom, 0}, {1, 1}};
+    out_vertices[count++] = (Vertex){{inv_right, inv_top, 0}, {1, 0}};
+    out_vertices[count++] = (Vertex){{inv_left, inv_top, 0}, {0, 0}};
+    out_vertices[count++] = (Vertex){{inv_left, inv_bottom, 0}, {0, 1}};
+    out_vertices[count++] = (Vertex){{inv_right, inv_bottom, 0}, {1, 1}};
+    
+    // Crafting grid background (exact grid size)
+    float craft_left = layout.craft_left;
+    float craft_right = layout.craft_right;
+    float craft_bottom = layout.craft_bottom;
+    float craft_top = layout.craft_top;
+    
+    out_vertices[count++] = (Vertex){{craft_left, craft_top, 0}, {0, 0}};
+    out_vertices[count++] = (Vertex){{craft_right, craft_bottom, 0}, {1, 1}};
+    out_vertices[count++] = (Vertex){{craft_right, craft_top, 0}, {1, 0}};
+    out_vertices[count++] = (Vertex){{craft_left, craft_top, 0}, {0, 0}};
+    out_vertices[count++] = (Vertex){{craft_left, craft_bottom, 0}, {0, 1}};
+    out_vertices[count++] = (Vertex){{craft_right, craft_bottom, 0}, {1, 1}};
+    
+    // Result slot background (exact slot size)
+    float result_left = layout.result_left;
+    float result_right = layout.result_right;
+    float result_bottom = layout.result_bottom;
+    float result_top = layout.result_top;
+    
+    out_vertices[count++] = (Vertex){{result_left, result_top, 0}, {0, 0}};
+    out_vertices[count++] = (Vertex){{result_right, result_bottom, 0}, {1, 1}};
+    out_vertices[count++] = (Vertex){{result_right, result_top, 0}, {1, 0}};
+    out_vertices[count++] = (Vertex){{result_left, result_top, 0}, {0, 0}};
+    out_vertices[count++] = (Vertex){{result_left, result_bottom, 0}, {0, 1}};
+    out_vertices[count++] = (Vertex){{result_right, result_bottom, 0}, {1, 1}};
+    
+    *out_count = count;
+}
+
+void player_crafting_grid_vertices(float aspect, Vertex *out_vertices, uint32_t max_vertices,
+                                   uint32_t *out_count) {
+    if (!out_vertices || !out_count || max_vertices == 0) return;
+
+    InventoryLayout layout = calculate_inventory_layout(aspect);
+
+    float left = layout.craft_left;
+    float right = layout.craft_right;
+    float bottom = layout.craft_bottom;
+    float top = layout.craft_top;
+    float h_step = (right - left) / (float)CRAFTING_COLS;
+    float v_step = (top - bottom) / (float)CRAFTING_ROWS;
+
+    uint32_t count = 0;
+
+    /* Border */
+    append_line(out_vertices, &count, max_vertices, left, bottom, right, bottom);
+    append_line(out_vertices, &count, max_vertices, right, bottom, right, top);
+    append_line(out_vertices, &count, max_vertices, right, top, left, top);
+    append_line(out_vertices, &count, max_vertices, left, top, left, bottom);
+
+    /* Vertical grid lines */
+    for (int col = 1; col < CRAFTING_COLS; ++col) {
+        float x = left + (float)col * h_step;
+        append_line(out_vertices, &count, max_vertices, x, bottom, x, top);
+    }
+
+    /* Horizontal grid lines */
+    for (int row = 1; row < CRAFTING_ROWS; ++row) {
+        float y = bottom + (float)row * v_step;
+        append_line(out_vertices, &count, max_vertices, left, y, right, y);
+    }
+
+    *out_count = count;
+}
+
+void player_crafting_arrow_vertices(float aspect, Vertex *out_vertices, uint32_t max_vertices,
+                                    uint32_t *out_count) {
+    if (!out_vertices || !out_count || max_vertices == 0) return;
+
+    InventoryLayout layout = calculate_inventory_layout(aspect);
+
+    float left = layout.arrow_left;
+    float right = layout.arrow_right;
+    float bottom = layout.arrow_bottom;
+    float top = layout.arrow_top;
+    float mid_y = (top + bottom) * 0.5f;
+
+    uint32_t count = 0;
+
+    /* Arrow shaft */
+    append_line(out_vertices, &count, max_vertices, left, mid_y, right, mid_y);
+
+    /* Arrow head */
+    float head_size = (right - left) * 0.3f;
+    append_line(out_vertices, &count, max_vertices, right, mid_y, right - head_size, top);
+    append_line(out_vertices, &count, max_vertices, right, mid_y, right - head_size, bottom);
+
+    *out_count = count;
+}
+
+void player_crafting_result_slot_vertices(float aspect, Vertex *out_vertices, uint32_t max_vertices,
+                                          uint32_t *out_count) {
+    if (!out_vertices || !out_count || max_vertices == 0) return;
+
+    InventoryLayout layout = calculate_inventory_layout(aspect);
+
+    float left = layout.result_left;
+    float right = layout.result_right;
+    float bottom = layout.result_bottom;
+    float top = layout.result_top;
+
+    uint32_t count = 0;
+
+    /* Result slot border */
+    append_line(out_vertices, &count, max_vertices, left, bottom, right, bottom);
+    append_line(out_vertices, &count, max_vertices, right, bottom, right, top);
+    append_line(out_vertices, &count, max_vertices, right, top, left, top);
+    append_line(out_vertices, &count, max_vertices, left, top, left, bottom);
+
+    *out_count = count;
+}
+
 int player_inventory_slot_from_mouse(float aspect,
                                      float mouse_x,
                                      float mouse_y,
@@ -496,12 +702,12 @@ int player_inventory_slot_from_mouse(float aspect,
     float ndc_x = (mouse_x / window_w) * 2.0f - 1.0f;
     float ndc_y = 1.0f - (mouse_y / window_h) * 2.0f;
 
-    const float inv_half = 0.2f;
-    const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
-    const float left = -inv_half_x;
-    const float right = inv_half_x;
-    const float bottom = -inv_half;
-    const float top = inv_half;
+    InventoryLayout layout = calculate_inventory_layout(aspect);
+
+    float left = layout.inv_left;
+    float right = layout.inv_right;
+    float bottom = layout.inv_bottom;
+    float top = layout.inv_top;
 
     if (ndc_x < left || ndc_x > right || ndc_y < bottom || ndc_y > top) return -1;
 
@@ -526,14 +732,14 @@ void player_inventory_selection_vertices(int slot,
 
     if (slot < 0 || slot >= INVENTORY_SIZE) return;
 
-    const float inv_half = 0.2f;
-    const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
-    const float left = -inv_half_x;
-    const float right = inv_half_x;
-    const float bottom = -inv_half;
-    const float top = inv_half;
-    const float h_step = (right - left) / (float)INVENTORY_COLS;
-    const float v_step = (top - bottom) / (float)INVENTORY_ROWS;
+    InventoryLayout layout = calculate_inventory_layout(aspect);
+
+    float left = layout.inv_left;
+    float right = layout.inv_right;
+    float bottom = layout.inv_bottom;
+    float top = layout.inv_top;
+    float h_step = (right - left) / (float)INVENTORY_COLS;
+    float v_step = (top - bottom) / (float)INVENTORY_ROWS;
 
     int row = slot / INVENTORY_COLS;
     int col = slot % INVENTORY_COLS;
@@ -597,14 +803,14 @@ void player_inventory_grid_vertices(float aspect,
                                     float *out_v_step) {
     if (!out_vertices || !out_count || max_vertices == 0) return;
 
-    const float inv_half = 0.2f;
-    const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
-    const float left = -inv_half_x;
-    const float right = inv_half_x;
-    const float bottom = -inv_half;
-    const float top = inv_half;
-    const float h_step = (right - left) / (float)INVENTORY_COLS;
-    const float v_step = (top - bottom) / (float)INVENTORY_ROWS;
+    InventoryLayout layout = calculate_inventory_layout(aspect);
+
+    float left = layout.inv_left;
+    float right = layout.inv_right;
+    float bottom = layout.inv_bottom;
+    float top = layout.inv_top;
+    float h_step = (right - left) / (float)INVENTORY_COLS;
+    float v_step = (top - bottom) / (float)INVENTORY_ROWS;
 
     uint32_t count = 0;
 
@@ -662,14 +868,14 @@ uint32_t player_inventory_icon_instances(const Player *player,
                                          uint32_t max_instances) {
     if (!player) return 0;
 
-    const float inv_half = 0.2f;
-    const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
-    const float left = -inv_half_x;
-    const float right = inv_half_x;
-    const float bottom = -inv_half;
-    const float top = inv_half;
-    const float h_step = (right - left) / (float)INVENTORY_COLS;
-    const float v_step = (top - bottom) / (float)INVENTORY_ROWS;
+    InventoryLayout layout = calculate_inventory_layout(aspect);
+
+    float left = layout.inv_left;
+    float right = layout.inv_right;
+    float bottom = layout.inv_bottom;
+    float top = layout.inv_top;
+    float h_step = (right - left) / (float)INVENTORY_COLS;
+    float v_step = (top - bottom) / (float)INVENTORY_ROWS;
 
     uint32_t icon_index = 0;
     for (int slot = 0; slot < INVENTORY_SIZE; ++slot) {
@@ -707,14 +913,14 @@ uint32_t player_inventory_count_vertices(const Player *player,
                                          uint32_t max_vertices) {
     if (!player || !out_vertices || max_vertices == 0) return 0;
 
-    const float inv_half = 0.2f;
-    const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
-    const float left = -inv_half_x;
-    const float right = inv_half_x;
-    const float bottom = -inv_half;
-    const float top = inv_half;
-    const float h_step = (right - left) / (float)INVENTORY_COLS;
-    const float v_step = (top - bottom) / (float)INVENTORY_ROWS;
+    InventoryLayout layout = calculate_inventory_layout(aspect);
+
+    float left = layout.inv_left;
+    float right = layout.inv_right;
+    float bottom = layout.inv_bottom;
+    float top = layout.inv_top;
+    float h_step = (right - left) / (float)INVENTORY_COLS;
+    float v_step = (top - bottom) / (float)INVENTORY_ROWS;
 
     uint32_t count_vertices = 0;
 

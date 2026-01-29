@@ -67,10 +67,13 @@ struct Renderer {
 
     VkBuffer crosshair_buffer, inventory_grid_buffer, inventory_icon_buffer;
     VkBuffer inventory_count_buffer, inventory_selection_buffer, inventory_bg_buffer;
+    VkBuffer crafting_grid_buffer, crafting_arrow_buffer, crafting_result_buffer;
     VkDeviceMemory crosshair_memory, inventory_grid_memory, inventory_icon_memory;
     VkDeviceMemory inventory_count_memory, inventory_selection_memory, inventory_bg_memory;
-    
+    VkDeviceMemory crafting_grid_memory, crafting_arrow_memory, crafting_result_memory;
+
     uint32_t inventory_grid_count, inventory_icon_count;
+    uint32_t crafting_grid_count, crafting_arrow_count, crafting_result_count;
 
     VkBuffer instance_buffer;
     VkDeviceMemory instance_memory;
@@ -635,9 +638,21 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                  &r->inventory_selection_buffer, &r->inventory_selection_memory);
     
-    create_buffer(r, sizeof(Vertex) * 6, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+    create_buffer(r, sizeof(Vertex) * 18, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
                  &r->inventory_bg_buffer, &r->inventory_bg_memory);
+
+    create_buffer(r, sizeof(Vertex) * 32, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 &r->crafting_grid_buffer, &r->crafting_grid_memory);
+
+    create_buffer(r, sizeof(Vertex) * 16, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 &r->crafting_arrow_buffer, &r->crafting_arrow_memory);
+
+    create_buffer(r, sizeof(Vertex) * 16, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                 &r->crafting_result_buffer, &r->crafting_result_memory);
     
     r->instance_capacity = INITIAL_INSTANCE_CAPACITY;
     create_buffer(r, r->instance_capacity * sizeof(InstanceData), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
@@ -910,6 +925,24 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
     Vertex grid_verts[32];
     player_inventory_grid_vertices(aspect, grid_verts, 32, &r->inventory_grid_count, &h_step, &v_step);
     upload_buffer(r->device, r->inventory_grid_memory, grid_verts, r->inventory_grid_count * sizeof(Vertex));
+
+    // Initialize Crafting Grid
+    Vertex crafting_grid_verts[32];
+    player_crafting_grid_vertices(aspect, crafting_grid_verts, 32, &r->crafting_grid_count);
+    upload_buffer(r->device, r->crafting_grid_memory, crafting_grid_verts,
+                  r->crafting_grid_count * sizeof(Vertex));
+
+    // Initialize Crafting Arrow
+    Vertex crafting_arrow_verts[16];
+    player_crafting_arrow_vertices(aspect, crafting_arrow_verts, 16, &r->crafting_arrow_count);
+    upload_buffer(r->device, r->crafting_arrow_memory, crafting_arrow_verts,
+                  r->crafting_arrow_count * sizeof(Vertex));
+
+    // Initialize Crafting Result Slot
+    Vertex crafting_result_verts[16];
+    player_crafting_result_slot_vertices(aspect, crafting_result_verts, 16, &r->crafting_result_count);
+    upload_buffer(r->device, r->crafting_result_memory, crafting_result_verts,
+                  r->crafting_result_count * sizeof(Vertex));
     
     // Initialize Inventory Icon Quad
     Vertex icon_verts[6];
@@ -967,6 +1000,13 @@ void renderer_destroy(Renderer *r) {
     
     vkDestroyBuffer(r->device, r->instance_buffer, NULL);
     vkFreeMemory(r->device, r->instance_memory, NULL);
+
+    vkDestroyBuffer(r->device, r->crafting_result_buffer, NULL);
+    vkFreeMemory(r->device, r->crafting_result_memory, NULL);
+    vkDestroyBuffer(r->device, r->crafting_arrow_buffer, NULL);
+    vkFreeMemory(r->device, r->crafting_arrow_memory, NULL);
+    vkDestroyBuffer(r->device, r->crafting_grid_buffer, NULL);
+    vkFreeMemory(r->device, r->crafting_grid_memory, NULL);
     
     vkDestroyBuffer(r->device, r->inventory_bg_buffer, NULL);
     vkFreeMemory(r->device, r->inventory_bg_memory, NULL);
@@ -1094,15 +1134,11 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
             upload_buffer(r->device, r->inventory_selection_memory, sel_verts, sel_count * sizeof(Vertex));
         }
         
-        const float inv_half = 0.2f;
-        const float inv_half_x = inv_half * aspect * ((float)INVENTORY_COLS / (float)INVENTORY_ROWS);
-        
-        Vertex bg_verts[6] = {
-            {{-inv_half_x,  inv_half, 0}, {0, 0}}, {{ inv_half_x, -inv_half, 0}, {1, 1}}, {{ inv_half_x,  inv_half, 0}, {1, 0}},
-            {{-inv_half_x,  inv_half, 0}, {0, 0}}, {{-inv_half_x, -inv_half, 0}, {0, 1}}, {{ inv_half_x, -inv_half, 0}, {1, 1}}
-        };
-        bg_count = 6;
-        upload_buffer(r->device, r->inventory_bg_memory, bg_verts, bg_count * sizeof(Vertex));
+        Vertex bg_verts[18];
+        player_inventory_background_vertices(aspect, bg_verts, 18, &bg_count);
+        if (bg_count > 0) {
+            upload_buffer(r->device, r->inventory_bg_memory, bg_verts, bg_count * sizeof(Vertex));
+        }
         
         Vertex count_verts[1500];
         count_count = player_inventory_count_vertices(player, aspect, count_verts, 1500);
@@ -1217,6 +1253,45 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
                                    &r->descriptor_sets_highlight[img_idx], 0, NULL);
             
             vkCmdDraw(cmd, r->inventory_grid_count, 1, 0, inventory_idx);
+        }
+
+        if (r->crafting_grid_count > 0) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
+            vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
+
+            bufs[0] = r->crafting_grid_buffer;
+            bufs[1] = r->instance_buffer;
+            vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
+                                   &r->descriptor_sets_highlight[img_idx], 0, NULL);
+
+            vkCmdDraw(cmd, r->crafting_grid_count, 1, 0, inventory_idx);
+        }
+
+        if (r->crafting_arrow_count > 0) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
+            vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
+
+            bufs[0] = r->crafting_arrow_buffer;
+            bufs[1] = r->instance_buffer;
+            vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
+                                   &r->descriptor_sets_highlight[img_idx], 0, NULL);
+
+            vkCmdDraw(cmd, r->crafting_arrow_count, 1, 0, inventory_idx);
+        }
+
+        if (r->crafting_result_count > 0) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
+            vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
+
+            bufs[0] = r->crafting_result_buffer;
+            bufs[1] = r->instance_buffer;
+            vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
+                                   &r->descriptor_sets_highlight[img_idx], 0, NULL);
+
+            vkCmdDraw(cmd, r->crafting_result_count, 1, 0, inventory_idx);
         }
         
         if (sel_count > 0) {

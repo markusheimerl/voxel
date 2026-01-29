@@ -16,6 +16,8 @@
 #define INVENTORY_COLS 9
 #define INVENTORY_ROWS 3
 #define INVENTORY_SIZE (INVENTORY_COLS * INVENTORY_ROWS)
+#define CRAFTING_COLS 3
+#define CRAFTING_ROWS 3
 
 typedef struct Player {
     Vec3 position;    /* feet center */
@@ -93,6 +95,26 @@ void player_inventory_grid_vertices(float aspect,
                                     uint32_t *out_count,
                                     float *out_h_step,
                                     float *out_v_step);
+
+void player_crafting_grid_vertices(float aspect,
+                                   Vertex *out_vertices,
+                                   uint32_t max_vertices,
+                                   uint32_t *out_count);
+
+void player_crafting_arrow_vertices(float aspect,
+                                    Vertex *out_vertices,
+                                    uint32_t max_vertices,
+                                    uint32_t *out_count);
+
+void player_crafting_result_slot_vertices(float aspect,
+                                          Vertex *out_vertices,
+                                          uint32_t max_vertices,
+                                          uint32_t *out_count);
+
+void player_inventory_background_vertices(float aspect,
+                                          Vertex *out_vertices,
+                                          uint32_t max_vertices,
+                                          uint32_t *out_count);
 
 void player_inventory_icon_vertices(float h_step,
                                     float v_step,
