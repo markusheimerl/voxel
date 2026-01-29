@@ -32,6 +32,7 @@ void player_init(Player *player, Vec3 spawn_position) {
     player->selected_slot = 0;
     player->inventory_held_origin_slot = 0;
     player->inventory_held_origin_valid = false;
+    player->inventory_held_from_crafting = false;
     player->inventory_mouse_ndc_x = 0.0f;
     player->inventory_mouse_ndc_y = 0.0f;
     player->inventory_mouse_valid = false;
@@ -431,6 +432,34 @@ void player_inventory_cancel_held(Player *player) {
     if (player->inventory_held_count == 0 || !player->inventory_held_origin_valid) return;
 
     int origin = (int)player->inventory_held_origin_slot;
+
+    if (player->inventory_held_from_crafting) {
+        if (origin < 0 || origin >= CRAFTING_SIZE) return;
+
+        if (player->crafting_grid_counts[origin] == 0) {
+            player->crafting_grid[origin] = player->inventory_held_type;
+            player->crafting_grid_counts[origin] = player->inventory_held_count;
+            player->inventory_held_type = 0;
+            player->inventory_held_count = 0;
+            player->inventory_held_origin_valid = false;
+            player->inventory_held_from_crafting = false;
+            return;
+        }
+
+        if (player->crafting_grid[origin] == player->inventory_held_type) {
+            uint16_t total = (uint16_t)player->crafting_grid_counts[origin] +
+                             (uint16_t)player->inventory_held_count;
+            if (total <= UINT8_MAX) {
+                player->crafting_grid_counts[origin] = (uint8_t)total;
+                player->inventory_held_type = 0;
+                player->inventory_held_count = 0;
+                player->inventory_held_origin_valid = false;
+                player->inventory_held_from_crafting = false;
+            }
+        }
+        return;
+    }
+
     if (origin < 0 || origin >= INVENTORY_SIZE) return;
 
     uint8_t held_type = player->inventory_held_type;
@@ -558,6 +587,169 @@ static InventoryLayout calculate_inventory_layout(float aspect) {
     layout.result_top = craft_center_y + result_height * 0.5f;
 
     return layout;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Crafting Grid Interaction                                                  */
+/* -------------------------------------------------------------------------- */
+
+int player_crafting_slot_from_mouse(float aspect,
+                                     float mouse_x,
+                                     float mouse_y,
+                                     float window_w,
+                                     float window_h) {
+    if (window_w <= 0.0f || window_h <= 0.0f) return -1;
+
+    float ndc_x = (mouse_x / window_w) * 2.0f - 1.0f;
+    float ndc_y = 1.0f - (mouse_y / window_h) * 2.0f;
+
+    InventoryLayout layout = calculate_inventory_layout(aspect);
+
+    float left = layout.craft_left;
+    float right = layout.craft_right;
+    float bottom = layout.craft_bottom;
+    float top = layout.craft_top;
+
+    if (ndc_x < left || ndc_x > right || ndc_y < bottom || ndc_y > top) return -1;
+
+    const float h_step = (right - left) / (float)CRAFTING_COLS;
+    const float v_step = (top - bottom) / (float)CRAFTING_ROWS;
+
+    int col = (int)((ndc_x - left) / h_step);
+    int row = (int)((top - ndc_y) / v_step);
+
+    if (col < 0 || col >= CRAFTING_COLS || row < 0 || row >= CRAFTING_ROWS) return -1;
+
+    return row * CRAFTING_COLS + col;
+}
+
+void player_crafting_handle_click(Player *player, int slot) {
+    if (!player) return;
+    if (slot < 0 || slot >= CRAFTING_SIZE) return;
+
+    uint8_t held_count = player->inventory_held_count;
+    uint8_t held_type = player->inventory_held_type;
+
+    if (held_count == 0) {
+        if (player->crafting_grid_counts[slot] == 0) return;
+        player->inventory_held_type = player->crafting_grid[slot];
+        player->inventory_held_count = player->crafting_grid_counts[slot];
+        player->crafting_grid[slot] = 0;
+        player->crafting_grid_counts[slot] = 0;
+        player->inventory_held_origin_slot = (uint8_t)slot;
+        player->inventory_held_origin_valid = true;
+        player->inventory_held_from_crafting = true;
+        return;
+    }
+
+    if (player->crafting_grid_counts[slot] == 0) {
+        player->crafting_grid[slot] = held_type;
+        player->crafting_grid_counts[slot] = held_count;
+        player->inventory_held_type = 0;
+        player->inventory_held_count = 0;
+        player->inventory_held_origin_valid = false;
+        player->inventory_held_from_crafting = false;
+        return;
+    }
+
+    if (player->crafting_grid[slot] == held_type) {
+        uint16_t total = (uint16_t)player->crafting_grid_counts[slot] + (uint16_t)held_count;
+        if (total <= UINT8_MAX) {
+            player->crafting_grid_counts[slot] = (uint8_t)total;
+            player->inventory_held_type = 0;
+            player->inventory_held_count = 0;
+            player->inventory_held_origin_valid = false;
+            player->inventory_held_from_crafting = false;
+        } else {
+            player->crafting_grid_counts[slot] = UINT8_MAX;
+            player->inventory_held_count = (uint8_t)(total - UINT8_MAX);
+        }
+        return;
+    }
+
+    uint8_t swap_type = player->crafting_grid[slot];
+    uint8_t swap_count = player->crafting_grid_counts[slot];
+    player->crafting_grid[slot] = held_type;
+    player->crafting_grid_counts[slot] = held_count;
+    player->inventory_held_type = swap_type;
+    player->inventory_held_count = swap_count;
+}
+
+void player_crafting_handle_right_click(Player *player, int slot) {
+    if (!player) return;
+    if (slot < 0 || slot >= CRAFTING_SIZE) return;
+
+    if (player->inventory_held_count != 0) {
+        if (player->crafting_grid_counts[slot] == 0) {
+            player->crafting_grid[slot] = player->inventory_held_type;
+            player->crafting_grid_counts[slot] = 1;
+            player->inventory_held_count--;
+        } else if (player->crafting_grid[slot] == player->inventory_held_type &&
+                   player->crafting_grid_counts[slot] < UINT8_MAX) {
+            player->crafting_grid_counts[slot]++;
+            player->inventory_held_count--;
+        } else {
+            return;
+        }
+
+        if (player->inventory_held_count == 0) {
+            player->inventory_held_type = 0;
+            player->inventory_held_origin_valid = false;
+            player->inventory_held_from_crafting = false;
+        }
+        return;
+    }
+
+    if (player->crafting_grid_counts[slot] == 0) return;
+
+    uint8_t slot_count = player->crafting_grid_counts[slot];
+    uint8_t take_count = (uint8_t)((slot_count + 1) / 2);
+    uint8_t remain_count = (uint8_t)(slot_count - take_count);
+
+    player->inventory_held_type = player->crafting_grid[slot];
+    player->inventory_held_count = take_count;
+    player->inventory_held_origin_slot = (uint8_t)slot;
+    player->inventory_held_origin_valid = true;
+    player->inventory_held_from_crafting = true;
+
+    player->crafting_grid_counts[slot] = remain_count;
+    if (remain_count == 0) player->crafting_grid[slot] = 0;
+}
+
+void player_return_crafting_to_inventory(Player *player) {
+    if (!player) return;
+
+    for (int slot = 0; slot < CRAFTING_SIZE; ++slot) {
+        if (player->crafting_grid_counts[slot] == 0) continue;
+
+        uint8_t type = player->crafting_grid[slot];
+        uint8_t count = player->crafting_grid_counts[slot];
+
+        for (int i = 0; i < INVENTORY_SIZE && count > 0; ++i) {
+            if (player->inventory_counts[i] > 0 && player->inventory[i] == type) {
+                uint16_t total = (uint16_t)player->inventory_counts[i] + (uint16_t)count;
+                if (total <= UINT8_MAX) {
+                    player->inventory_counts[i] = (uint8_t)total;
+                    count = 0;
+                } else {
+                    uint8_t space = (uint8_t)(UINT8_MAX - player->inventory_counts[i]);
+                    player->inventory_counts[i] = UINT8_MAX;
+                    count -= space;
+                }
+            }
+        }
+
+        for (int i = 0; i < INVENTORY_SIZE && count > 0; ++i) {
+            if (player->inventory_counts[i] == 0) {
+                player->inventory[i] = type;
+                player->inventory_counts[i] = count;
+                count = 0;
+            }
+        }
+
+        player->crafting_grid[slot] = 0;
+        player->crafting_grid_counts[slot] = 0;
+    }
 }
 
 void player_inventory_background_vertices(float aspect, Vertex *out_vertices, uint32_t max_vertices, uint32_t *out_count) {
@@ -892,6 +1084,27 @@ uint32_t player_inventory_icon_instances(const Player *player,
         icon_index++;
     }
 
+    float craft_left = layout.craft_left;
+    float craft_right = layout.craft_right;
+    float craft_bottom = layout.craft_bottom;
+    float craft_top = layout.craft_top;
+    float craft_h_step = (craft_right - craft_left) / (float)CRAFTING_COLS;
+    float craft_v_step = (craft_top - craft_bottom) / (float)CRAFTING_ROWS;
+
+    for (int slot = 0; slot < CRAFTING_SIZE; ++slot) {
+        if (player->crafting_grid_counts[slot] == 0) continue;
+        if (out_instances && icon_index < max_instances) {
+            int row = slot / CRAFTING_COLS;
+            int col = slot % CRAFTING_COLS;
+            float center_x = craft_left + craft_h_step * 0.5f + (float)col * craft_h_step;
+            float center_y = craft_top - craft_v_step * 0.5f - (float)row * craft_v_step;
+            out_instances[icon_index] = (InstanceData){
+                center_x, center_y, 0.0f, (uint32_t)player->crafting_grid[slot]
+            };
+        }
+        icon_index++;
+    }
+
     if (player->inventory_open && player->inventory_mouse_valid && player->inventory_held_count > 0) {
         if (out_instances && icon_index < max_instances) {
             out_instances[icon_index] = (InstanceData){
@@ -950,6 +1163,46 @@ uint32_t player_inventory_count_vertices(const Player *player,
         float total_w = (float)digit_count * digit_w + (float)(digit_count - 1) * gap;
         float start_x = cell_left + h_step - total_w - h_step * 0.08f;
         float start_y = cell_top - v_step + v_step * 0.12f;
+
+        for (int i = 0; i < digit_count; ++i) {
+            append_digit(out_vertices, &count_vertices, max_vertices,
+                         digits[i], start_x + i * (digit_w + gap), start_y, digit_w, digit_h);
+        }
+    }
+
+    float craft_left = layout.craft_left;
+    float craft_right = layout.craft_right;
+    float craft_bottom = layout.craft_bottom;
+    float craft_top = layout.craft_top;
+    float craft_h_step = (craft_right - craft_left) / (float)CRAFTING_COLS;
+    float craft_v_step = (craft_top - craft_bottom) / (float)CRAFTING_ROWS;
+
+    for (int slot = 0; slot < CRAFTING_SIZE; ++slot) {
+        if (player->crafting_grid_counts[slot] == 0) continue;
+
+        int row = slot / CRAFTING_COLS;
+        int col = slot % CRAFTING_COLS;
+        float cell_left = craft_left + (float)col * craft_h_step;
+        float cell_top = craft_top - (float)row * craft_v_step;
+
+        float digit_w = craft_h_step * 0.16f;
+        float digit_h = craft_v_step * 0.35f;
+        float gap = digit_w * 0.25f;
+
+        uint8_t count = player->crafting_grid_counts[slot];
+        int d0 = count % 10;
+        int d1 = (count / 10) % 10;
+        int d2 = (count / 100) % 10;
+
+        int digits[3];
+        int digit_count = 0;
+        if (count >= 100) { digits[digit_count++] = d2; }
+        if (count >= 10) { digits[digit_count++] = d1; }
+        digits[digit_count++] = d0;
+
+        float total_w = (float)digit_count * digit_w + (float)(digit_count - 1) * gap;
+        float start_x = cell_left + craft_h_step - total_w - craft_h_step * 0.08f;
+        float start_y = cell_top - craft_v_step + craft_v_step * 0.12f;
 
         for (int i = 0; i < digit_count; ++i) {
             append_digit(out_vertices, &count_vertices, max_vertices,

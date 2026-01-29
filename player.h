@@ -18,6 +18,7 @@
 #define INVENTORY_SIZE (INVENTORY_COLS * INVENTORY_ROWS)
 #define CRAFTING_COLS 3
 #define CRAFTING_ROWS 3
+#define CRAFTING_SIZE (CRAFTING_COLS * CRAFTING_ROWS)
 
 typedef struct Player {
     Vec3 position;    /* feet center */
@@ -27,10 +28,13 @@ typedef struct Player {
     uint8_t selected_slot;
     uint8_t inventory[INVENTORY_SIZE];
     uint8_t inventory_counts[INVENTORY_SIZE];
+    uint8_t crafting_grid[CRAFTING_SIZE];
+    uint8_t crafting_grid_counts[CRAFTING_SIZE];
     uint8_t inventory_held_type;
     uint8_t inventory_held_count;
     uint8_t inventory_held_origin_slot;
     bool inventory_held_origin_valid;
+    bool inventory_held_from_crafting;
     float inventory_mouse_ndc_x;
     float inventory_mouse_ndc_y;
     bool inventory_mouse_valid;
@@ -143,5 +147,14 @@ uint32_t player_inventory_count_vertices(const Player *player,
                                          float aspect,
                                          Vertex *out_vertices,
                                          uint32_t max_vertices);
+
+int player_crafting_slot_from_mouse(float aspect,
+                                    float mouse_x,
+                                    float mouse_y,
+                                    float window_w,
+                                    float window_h);
+void player_crafting_handle_click(Player *player, int slot);
+void player_crafting_handle_right_click(Player *player, int slot);
+void player_return_crafting_to_inventory(Player *player);
 
 #endif /* PLAYER_H */

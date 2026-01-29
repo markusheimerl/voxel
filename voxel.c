@@ -111,6 +111,7 @@ int main(void) {
                     if (!was_down) {
                         player.inventory_open = !player.inventory_open;
                         if (!player.inventory_open) {
+                            player_return_crafting_to_inventory(&player);
                             player_inventory_cancel_held(&player);
                         }
                         if (player.inventory_open && mouse_captured) {
@@ -171,6 +172,20 @@ int main(void) {
                                 player_inventory_handle_right_click(&player, slot);
                             } else {
                                 player.selected_slot = (uint8_t)slot;
+                            }
+                        }
+                        else {
+                            int craft_slot = player_crafting_slot_from_mouse(aspect,
+                                                                              (float)event.data.mouse_button.x,
+                                                                              (float)event.data.mouse_button.y,
+                                                                              (float)window_width,
+                                                                              (float)window_height);
+                            if (craft_slot >= 0) {
+                                if (event.data.mouse_button.button == IO_MOUSE_BUTTON_LEFT) {
+                                    player_crafting_handle_click(&player, craft_slot);
+                                } else if (event.data.mouse_button.button == IO_MOUSE_BUTTON_RIGHT) {
+                                    player_crafting_handle_right_click(&player, craft_slot);
+                                }
                             }
                         }
                     }
