@@ -123,6 +123,7 @@ void player_handle_block_interaction(Player *player,
         if (slot >= INVENTORY_SIZE || player->inventory_counts[slot] == 0) return;
 
         uint8_t place_type = player->inventory[slot];
+        if (!item_is_placeable(place_type)) return;
         world_add_block(world, place, place_type);
         player->inventory_counts[slot]--;
         if (player->inventory_counts[slot] == 0) player->inventory[slot] = 0;
@@ -1302,24 +1303,51 @@ CraftingResult player_get_crafting_result(const Player *player) {
     CraftingResult result = {false, 0, 0};
     if (!player) return result;
 
-    // Count wood blocks in crafting grid
     int wood_count = 0;
+    int plank_count = 0;
     int empty_count = 0;
 
     for (int i = 0; i < CRAFTING_SIZE; ++i) {
-        if (player->crafting_grid_counts[i] > 0 && player->crafting_grid[i] == BLOCK_WOOD) {
-            wood_count++;
-        } else if (player->crafting_grid_counts[i] == 0) {
+        if (player->crafting_grid_counts[i] > 0) {
+            if (player->crafting_grid[i] == BLOCK_WOOD) {
+                wood_count++;
+            } else if (player->crafting_grid[i] == BLOCK_PLANKS) {
+                plank_count++;
+            }
+        } else {
             empty_count++;
         }
     }
 
-    // Recipe: 1 wood -> 4 planks (wood can be in any slot)
     if (wood_count == 1 && empty_count == 8) {
         result.valid = true;
         result.result_type = BLOCK_PLANKS;
         result.result_count = 4;
         return result;
+    }
+
+    if (plank_count == 2 && empty_count == 7) {
+        const int vertical_pairs[][2] = {
+            {0, 3}, {3, 6},
+            {1, 4}, {4, 7},
+            {2, 5}, {5, 8}
+        };
+
+        for (int i = 0; i < 6; ++i) {
+            int top = vertical_pairs[i][0];
+            int bottom = vertical_pairs[i][1];
+
+            if (player->crafting_grid_counts[top] > 0 &&
+                player->crafting_grid[top] == BLOCK_PLANKS &&
+                player->crafting_grid_counts[bottom] > 0 &&
+                player->crafting_grid[bottom] == BLOCK_PLANKS) {
+
+                result.valid = true;
+                result.result_type = ITEM_STICK;
+                result.result_count = 4;
+                return result;
+            }
+        }
     }
 
     return result;
@@ -1360,24 +1388,52 @@ void player_crafting_result_handle_click(Player *player) {
         if (player->inventory_held_type != craft_result.result_type) return;
 
         uint16_t total = (uint16_t)player->inventory_held_count + (uint16_t)craft_result.result_count;
-        if (total > UINT8_MAX) return; // Can't pick up, would overflow
+        if (total > UINT8_MAX) return;
 
         player->inventory_held_count = (uint8_t)total;
     } else {
-        // Pick up the result
         player->inventory_held_type = craft_result.result_type;
         player->inventory_held_count = craft_result.result_count;
         player->inventory_held_origin_valid = false;
     }
 
-    // Consume one wood from the crafting grid
-    for (int i = 0; i < CRAFTING_SIZE; ++i) {
-        if (player->crafting_grid_counts[i] > 0 && player->crafting_grid[i] == BLOCK_WOOD) {
-            player->crafting_grid_counts[i]--;
-            if (player->crafting_grid_counts[i] == 0) {
-                player->crafting_grid[i] = 0;
+    if (craft_result.result_type == BLOCK_PLANKS) {
+        for (int i = 0; i < CRAFTING_SIZE; ++i) {
+            if (player->crafting_grid_counts[i] > 0 && player->crafting_grid[i] == BLOCK_WOOD) {
+                player->crafting_grid_counts[i]--;
+                if (player->crafting_grid_counts[i] == 0) {
+                    player->crafting_grid[i] = 0;
+                }
+                break;
             }
-            break;
+        }
+    } else if (craft_result.result_type == ITEM_STICK) {
+        const int vertical_pairs[][2] = {
+            {0, 3}, {3, 6},
+            {1, 4}, {4, 7},
+            {2, 5}, {5, 8}
+        };
+
+        for (int i = 0; i < 6; ++i) {
+            int top = vertical_pairs[i][0];
+            int bottom = vertical_pairs[i][1];
+
+            if (player->crafting_grid_counts[top] > 0 &&
+                player->crafting_grid[top] == BLOCK_PLANKS &&
+                player->crafting_grid_counts[bottom] > 0 &&
+                player->crafting_grid[bottom] == BLOCK_PLANKS) {
+
+                player->crafting_grid_counts[top]--;
+                if (player->crafting_grid_counts[top] == 0) {
+                    player->crafting_grid[top] = 0;
+                }
+
+                player->crafting_grid_counts[bottom]--;
+                if (player->crafting_grid_counts[bottom] == 0) {
+                    player->crafting_grid[bottom] = 0;
+                }
+                break;
+            }
         }
     }
 }

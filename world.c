@@ -25,6 +25,12 @@ AABB cell_aabb(IVec3 cell) {
 static bool block_is_air(uint8_t type) { return type == 255u; }
 static bool block_is_water(uint8_t type) { return type == BLOCK_WATER; }
 
+bool item_is_placeable(uint8_t type) {
+    if (type == ITEM_STICK) return false;
+    if (type == 255u) return false;
+    return type < ITEM_STICK;
+}
+
 /* -------------------------------------------------------------------------- */
 /* World / Chunk Configuration                                                */
 /* -------------------------------------------------------------------------- */

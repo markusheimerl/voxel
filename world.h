@@ -20,14 +20,15 @@ typedef enum {
     BLOCK_WOOD  = 5,
     BLOCK_LEAVES = 6,
     BLOCK_PLANKS = 7,
-    BLOCK_TYPE_COUNT
+    ITEM_STICK = 8,
+    ITEM_TYPE_COUNT
 } BlockType;
 
 enum {
-    CROSSHAIR_TEXTURE_INDEX = BLOCK_TYPE_COUNT,
-    INVENTORY_SELECTION_TEXTURE_INDEX = BLOCK_TYPE_COUNT + 1,
-    INVENTORY_BG_TEXTURE_INDEX = BLOCK_TYPE_COUNT + 2,
-    HIGHLIGHT_TEXTURE_INDEX = BLOCK_TYPE_COUNT + 3
+    CROSSHAIR_TEXTURE_INDEX = ITEM_TYPE_COUNT,
+    INVENTORY_SELECTION_TEXTURE_INDEX = ITEM_TYPE_COUNT + 1,
+    INVENTORY_BG_TEXTURE_INDEX = ITEM_TYPE_COUNT + 2,
+    HIGHLIGHT_TEXTURE_INDEX = ITEM_TYPE_COUNT + 3
 };
 
 typedef struct {
@@ -131,5 +132,6 @@ bool world_block_exists(World *world, IVec3 pos);
 bool world_add_block(World *world, IVec3 pos, uint8_t type);
 bool world_remove_block(World *world, IVec3 pos);
 int world_total_render_blocks(World *world);
+bool item_is_placeable(uint8_t type);
 
 #endif /* WORLD_H */

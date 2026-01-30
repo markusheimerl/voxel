@@ -54,10 +54,10 @@ struct Renderer {
     uint32_t graphics_family;
     VkCommandPool command_pool;
 
-    VkImage textures[BLOCK_TYPE_COUNT];
-    VkDeviceMemory textures_memory[BLOCK_TYPE_COUNT];
-    VkImageView textures_view[BLOCK_TYPE_COUNT];
-    VkSampler textures_sampler[BLOCK_TYPE_COUNT];
+    VkImage textures[ITEM_TYPE_COUNT];
+    VkDeviceMemory textures_memory[ITEM_TYPE_COUNT];
+    VkImageView textures_view[ITEM_TYPE_COUNT];
+    VkSampler textures_sampler[ITEM_TYPE_COUNT];
 
     VkBuffer block_vertex_buffer, block_index_buffer;
     VkDeviceMemory block_vertex_memory, block_index_memory;
@@ -402,7 +402,8 @@ static VkShaderModule load_shader(VkDevice dev, const char *path) {
 
 static VkPipeline create_pipeline(Renderer *r, VkShaderModule vert, VkShaderModule frag,
                                  VkPrimitiveTopology topology, VkPolygonMode polygon_mode,
-                                 VkCullModeFlags cull, bool depth_test, bool depth_write) {
+                                 VkCullModeFlags cull, bool depth_test, bool depth_write,
+                                 bool enable_blend) {
     VkPipelineShaderStageCreateInfo stages[2] = {
         {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = vert, .pName = "main"},
         {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = frag, .pName = "main"}
@@ -461,7 +462,14 @@ static VkPipeline create_pipeline(Renderer *r, VkShaderModule vert, VkShaderModu
     };
     
     VkPipelineColorBlendAttachmentState blend_attach = {
-        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
+        .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT,
+        .blendEnable = enable_blend,
+        .srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+        .dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
+        .colorBlendOp = VK_BLEND_OP_ADD,
+        .srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+        .dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+        .alphaBlendOp = VK_BLEND_OP_ADD
     };
     
     VkPipelineColorBlendStateCreateInfo color_blending = {
@@ -586,13 +594,13 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
     VK_CHECK(vkCreateCommandPool(r->device, &pool_info, NULL, &r->command_pool));
     
     // Textures
-    const char *tex_files[BLOCK_TYPE_COUNT] = {
+    const char *tex_files[ITEM_TYPE_COUNT] = {
         "textures/dirt.png", "textures/stone.png", "textures/grass.png",
         "textures/sand.png", "textures/water.png", "textures/wood.png", "textures/leaves.png",
-        "textures/planks.png"
+        "textures/planks.png", "textures/stick.png"
     };
     
-    for (uint32_t i = 0; i < BLOCK_TYPE_COUNT; i++) {
+    for (uint32_t i = 0; i < ITEM_TYPE_COUNT; i++) {
         load_texture(r, tex_files[i], &r->textures[i], &r->textures_memory[i],
                     &r->textures_view[i], &r->textures_sampler[i]);
     }
@@ -664,7 +672,7 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
     VkDescriptorSetLayoutBinding sampler_binding = {
         .binding = 0,
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .descriptorCount = BLOCK_TYPE_COUNT,
+        .descriptorCount = ITEM_TYPE_COUNT,
         .stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT
     };
     
@@ -809,16 +817,16 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
     VkShaderModule frag = load_shader(r->device, "shaders/frag.spv");
     
     r->pipeline_solid = create_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-                                       VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, true, true);
+                                       VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, true, true, false);
     
     r->pipeline_wireframe = create_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
-                                           VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, true, false);
+                                           VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, true, false, false);
     
     r->pipeline_crosshair = create_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
-                                           VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, false, false);
+                                           VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, false, false, false);
     
     r->pipeline_overlay = create_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-                                         VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, false, false);
+                                         VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, false, false, true);
     
     vkDestroyShaderModule(r->device, vert, NULL);
     vkDestroyShaderModule(r->device, frag, NULL);
@@ -841,7 +849,7 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
     // Descriptor Pool
     VkDescriptorPoolSize pool_size = {
         .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-        .descriptorCount = r->image_count * BLOCK_TYPE_COUNT * 2
+        .descriptorCount = r->image_count * ITEM_TYPE_COUNT * 2
     };
     
     VkDescriptorPoolCreateInfo desc_pool_info = {
@@ -871,9 +879,9 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
     free(layouts);
     
     for (uint32_t i = 0; i < r->image_count; i++) {
-        VkDescriptorImageInfo img_infos[BLOCK_TYPE_COUNT];
+        VkDescriptorImageInfo img_infos[ITEM_TYPE_COUNT];
         
-        for (uint32_t j = 0; j < BLOCK_TYPE_COUNT; j++) {
+        for (uint32_t j = 0; j < ITEM_TYPE_COUNT; j++) {
             img_infos[j].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             img_infos[j].imageView = r->textures_view[j];
             img_infos[j].sampler = r->textures_sampler[j];
@@ -883,7 +891,7 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
             .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
             .dstBinding = 0,
             .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-            .descriptorCount = BLOCK_TYPE_COUNT,
+            .descriptorCount = ITEM_TYPE_COUNT,
             .pImageInfo = img_infos
         };
         
@@ -1032,7 +1040,7 @@ void renderer_destroy(Renderer *r) {
     vkDestroyBuffer(r->device, r->block_vertex_buffer, NULL);
     vkFreeMemory(r->device, r->block_vertex_memory, NULL);
     
-    for (uint32_t i = 0; i < BLOCK_TYPE_COUNT; i++) {
+    for (uint32_t i = 0; i < ITEM_TYPE_COUNT; i++) {
         vkDestroySampler(r->device, r->textures_sampler[i], NULL);
         vkDestroyImageView(r->device, r->textures_view[i], NULL);
         vkDestroyImage(r->device, r->textures[i], NULL);
@@ -1309,7 +1317,7 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
         }
         
         if (icon_count > 0) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_solid);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_overlay);
             vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
             
             bufs[0] = r->inventory_icon_buffer;

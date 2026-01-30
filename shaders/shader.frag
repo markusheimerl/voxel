@@ -6,13 +6,13 @@ layout(location = 1) flat in uint fragBlockType;
 
 layout(location = 0) out vec4 outColor;
 
-layout(set = 0, binding = 0) uniform sampler2D texSamplers[8]; // BLOCK_TYPE_COUNT
+layout(set = 0, binding = 0) uniform sampler2D texSamplers[9]; // ITEM_TYPE_COUNT
 
-const uint BLOCK_TYPE_COUNT = 8u;
-const uint CROSSHAIR_INDEX = BLOCK_TYPE_COUNT;
-const uint INVENTORY_SELECTION_INDEX = BLOCK_TYPE_COUNT + 1u;
-const uint INVENTORY_BG_INDEX = BLOCK_TYPE_COUNT + 2u;
-const uint HIGHLIGHT_INDEX = BLOCK_TYPE_COUNT + 3u;
+const uint ITEM_TYPE_COUNT = 9u;
+const uint CROSSHAIR_INDEX = ITEM_TYPE_COUNT;
+const uint INVENTORY_SELECTION_INDEX = ITEM_TYPE_COUNT + 1u;
+const uint INVENTORY_BG_INDEX = ITEM_TYPE_COUNT + 2u;
+const uint HIGHLIGHT_INDEX = ITEM_TYPE_COUNT + 3u;
 
 void main() {
     if (fragBlockType == CROSSHAIR_INDEX) {
