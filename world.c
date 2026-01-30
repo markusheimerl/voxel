@@ -611,8 +611,20 @@ static void world_ensure_entity_capacity(World *world, int min_capacity) {
 bool world_add_zombie(World *world, Vec3 pos) {
     if (!world) return false;
     world_ensure_entity_capacity(world, world->entity_count + 1);
-    world->entities[world->entity_count++] = (Entity){.pos = pos, .type = ENTITY_ZOMBIE};
+    world->entities[world->entity_count++] = (Entity){
+        .pos = pos,
+        .velocity_y = 0.0f,
+        .on_ground = false,
+        .type = ENTITY_ZOMBIE
+    };
     return true;
+}
+
+void world_update_entities(World *world, float delta_time) {
+    if (!world) return;
+    for (int i = 0; i < world->entity_count; ++i) {
+        entity_apply_physics(&world->entities[i], world, delta_time);
+    }
 }
 
 uint32_t world_entity_block_count(const World *world) {

@@ -286,6 +286,8 @@ int main(void) {
         bool respawned = player_apply_physics(&player, &world, delta_time, move_delta, wants_jump);
         camera_follow_player(&camera, &player);
 
+        world_update_entities(&world, delta_time);
+
         if (respawned) {
             camera_reset_view(&camera);
         }

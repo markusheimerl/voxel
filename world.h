@@ -162,6 +162,7 @@ bool world_remove_block(World *world, IVec3 pos);
 int world_total_render_blocks(World *world);
 
 bool world_add_zombie(World *world, Vec3 pos);
+void world_update_entities(World *world, float delta_time);
 uint32_t world_entity_block_count(const World *world);
 uint32_t world_write_entity_blocks(const World *world, float time, RenderBlock *out, uint32_t max);
 
