@@ -117,6 +117,8 @@ typedef struct World {
     Entity *entities;
     int entity_count;
     int entity_capacity;
+
+    float time;
 } World;
 
 /* -------------------------------------------------------------------------- */
@@ -161,6 +163,6 @@ int world_total_render_blocks(World *world);
 
 bool world_add_zombie(World *world, Vec3 pos);
 uint32_t world_entity_block_count(const World *world);
-uint32_t world_write_entity_blocks(const World *world, RenderBlock *out, uint32_t max);
+uint32_t world_write_entity_blocks(const World *world, float time, RenderBlock *out, uint32_t max);
 
 #endif /* WORLD_H */

@@ -477,18 +477,19 @@ static VkPipeline create_graphics_pipeline(Renderer *r, VkShaderModule vert, VkS
         {.binding = 1, .stride = sizeof(InstanceData), .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE}
     };
     
-    VkVertexInputAttributeDescription attrs[5] = {
+    VkVertexInputAttributeDescription attrs[6] = {
         {.binding = 0, .location = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex, pos)},
         {.binding = 0, .location = 1, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, uv)},
         {.binding = 1, .location = 2, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(InstanceData, x)},
         {.binding = 1, .location = 3, .format = VK_FORMAT_R32_UINT, .offset = offsetof(InstanceData, type)},
-        {.binding = 1, .location = 4, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(InstanceData, sx)}
+        {.binding = 1, .location = 4, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(InstanceData, sx)},
+        {.binding = 1, .location = 5, .format = VK_FORMAT_R32_SFLOAT, .offset = offsetof(InstanceData, rot_x)}
     };
     
     VkPipelineVertexInputStateCreateInfo vertex_input = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .vertexBindingDescriptionCount = 2, .pVertexBindingDescriptions = bindings,
-        .vertexAttributeDescriptionCount = 5, .pVertexAttributeDescriptions = attrs
+        .vertexAttributeDescriptionCount = 6, .pVertexAttributeDescriptions = attrs
     };
     
     VkPipelineInputAssemblyStateCreateInfo input_assembly = {
@@ -1148,7 +1149,7 @@ static uint32_t fill_instance_buffer(Renderer *r, World *world, const Player *pl
         Chunk *chunk = world->chunks[i];
         for (int j = 0; j < chunk->block_count; j++) {
             Block b = chunk->blocks[j];
-            instances[idx++] = (InstanceData){b.pos.x, b.pos.y, b.pos.z, b.type, 1.0f, 1.0f, 1.0f};
+            instances[idx++] = (InstanceData){b.pos.x, b.pos.y, b.pos.z, b.type, 1.0f, 1.0f, 1.0f, 0.0f};
         }
     }
 
@@ -1158,10 +1159,11 @@ static uint32_t fill_instance_buffer(Renderer *r, World *world, const Player *pl
             vkUnmapMemory(r->device, r->instance_buf.memory);
             die("Failed to allocate entity render blocks");
         }
-        uint32_t written = world_write_entity_blocks(world, blocks, entity_block_count);
+        uint32_t written = world_write_entity_blocks(world, world->time, blocks, entity_block_count);
         for (uint32_t i = 0; i < written; ++i) {
             instances[idx++] = (InstanceData){blocks[i].pos.x, blocks[i].pos.y, blocks[i].pos.z,
-                                              blocks[i].type, blocks[i].scale.x, blocks[i].scale.y, blocks[i].scale.z};
+                                              blocks[i].type, blocks[i].scale.x, blocks[i].scale.y, blocks[i].scale.z,
+                                              blocks[i].rot_x};
         }
         free(blocks);
     }
@@ -1177,14 +1179,14 @@ static uint32_t fill_instance_buffer(Renderer *r, World *world, const Player *pl
     
     instances[*out_highlight_idx] = (InstanceData){
         highlight ? (float)highlight_cell.x : 0, highlight ? (float)highlight_cell.y : 0,
-        highlight ? (float)highlight_cell.z : 0, HIGHLIGHT_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f
+        highlight ? (float)highlight_cell.z : 0, HIGHLIGHT_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f, 0.0f
     };
-    instances[*out_crosshair_idx] = (InstanceData){0, 0, 0, CROSSHAIR_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f};
-    instances[*out_inventory_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f};
-    instances[*out_selection_idx] = (InstanceData){0, 0, 0, INVENTORY_SELECTION_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f};
-    instances[*out_bg_idx] = (InstanceData){0, 0, 0, INVENTORY_BG_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f};
-    instances[*out_health_bg_idx] = (InstanceData){0, 0, 0, HEALTH_BAR_INDEX, 1.0f, 1.0f, 1.0f};
-    instances[*out_health_border_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f};
+    instances[*out_crosshair_idx] = (InstanceData){0, 0, 0, CROSSHAIR_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f, 0.0f};
+    instances[*out_inventory_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f, 0.0f};
+    instances[*out_selection_idx] = (InstanceData){0, 0, 0, INVENTORY_SELECTION_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f, 0.0f};
+    instances[*out_bg_idx] = (InstanceData){0, 0, 0, INVENTORY_BG_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f, 0.0f};
+    instances[*out_health_bg_idx] = (InstanceData){0, 0, 0, HEALTH_BAR_INDEX, 1.0f, 1.0f, 1.0f, 0.0f};
+    instances[*out_health_border_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX, 1.0f, 1.0f, 1.0f, 0.0f};
     
     if (icon_count > 0) {
         player_inventory_icon_instances(player, aspect, &instances[*out_icons_start], icon_count);

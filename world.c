@@ -624,11 +624,11 @@ uint32_t world_entity_block_count(const World *world) {
     return total;
 }
 
-uint32_t world_write_entity_blocks(const World *world, RenderBlock *out, uint32_t max) {
+uint32_t world_write_entity_blocks(const World *world, float time, RenderBlock *out, uint32_t max) {
     if (!world || !out || max == 0) return 0;
     uint32_t written = 0;
     for (int i = 0; i < world->entity_count && written < max; ++i) {
-        written += entity_write_render_blocks(&world->entities[i], out + written, max - written);
+        written += entity_write_render_blocks(&world->entities[i], time, out + written, max - written);
     }
     return written;
 }
@@ -637,6 +637,7 @@ void world_init(World *world, WorldSave *save) {
     memset(world, 0, sizeof(*world));
     world->spawn_position = vec3(0.0f, 4.5f, 0.0f);
     world->save = save;
+    world->time = 0.0f;
 }
 
 void world_destroy(World *world) {

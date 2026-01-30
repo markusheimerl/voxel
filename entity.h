@@ -22,6 +22,7 @@ typedef struct {
     Vec3 pos;
     Vec3 scale;
     uint8_t type;
+    float rot_x;
 } RenderBlock;
 
 /* -------------------------------------------------------------------------- */
@@ -29,6 +30,6 @@ typedef struct {
 /* -------------------------------------------------------------------------- */
 
 uint32_t entity_render_block_count(const Entity *entity);
-uint32_t entity_write_render_blocks(const Entity *entity, RenderBlock *out, uint32_t max);
+uint32_t entity_write_render_blocks(const Entity *entity, float time, RenderBlock *out, uint32_t max);
 
 #endif /* ENTITY_H */

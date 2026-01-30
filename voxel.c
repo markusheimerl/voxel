@@ -275,6 +275,7 @@ int main(void) {
                       &left_click, &right_click);
         
         float delta_time = time_state_delta(&time_state);
+        world.time += delta_time;
         
         Vec3 move_delta;
         bool wants_jump;
