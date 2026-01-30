@@ -93,6 +93,36 @@ static void player_compute_aabb(Vec3 pos, AABB *aabb) {
     aabb->max = vec3(pos.x + PLAYER_HALF_WIDTH, pos.y + PLAYER_HEIGHT, pos.z + PLAYER_HALF_WIDTH);
 }
 
+static void player_clear_inventory(Player *player) {
+    if (!player) return;
+
+    memset(player->inventory, 0, sizeof(player->inventory));
+    memset(player->inventory_counts, 0, sizeof(player->inventory_counts));
+    memset(player->crafting_grid, 0, sizeof(player->crafting_grid));
+    memset(player->crafting_grid_counts, 0, sizeof(player->crafting_grid_counts));
+
+    player->inventory_held_type = 0;
+    player->inventory_held_count = 0;
+    player->inventory_held_origin_slot = 0;
+    player->inventory_held_origin_valid = false;
+    player->inventory_held_from_crafting = false;
+}
+
+static void player_respawn(Player *player, const World *world) {
+    if (!player || !world) return;
+
+    player->position = world->spawn_position;
+    player->velocity_y = 0.0f;
+    player->on_ground = false;
+    player->inventory_open = false;
+    player->selected_slot = 0;
+    player->health = 10;
+    player->fall_highest_y = player->position.y;
+    player->inventory_mouse_valid = false;
+
+    player_clear_inventory(player);
+}
+
 static void append_line(Vertex *verts, uint32_t *count, uint32_t max,
                         float x0, float y0, float x1, float y1) {
     if (*count + 2 > max) return;
@@ -369,6 +399,10 @@ void player_apply_physics(Player *player, World *world, float delta_time,
             }
         }
         player->fall_highest_y = player->position.y;
+    }
+
+    if (player->health == 0) {
+        player_respawn(player, world);
     }
 }
 
