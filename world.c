@@ -591,6 +591,48 @@ static void world_mark_neighbors_dirty(World *world, IVec3 pos) {
     }
 }
 
+/* -------------------------------------------------------------------------- */
+/* Entity Operations                                                          */
+/* -------------------------------------------------------------------------- */
+
+static void world_ensure_entity_capacity(World *world, int min_capacity) {
+    if (world->entity_capacity >= min_capacity) return;
+
+    int new_cap = world->entity_capacity > 0 ? world->entity_capacity * 2 : 8;
+    while (new_cap < min_capacity) new_cap *= 2;
+
+    Entity *new_entities = realloc(world->entities, (size_t)new_cap * sizeof(Entity));
+    if (!new_entities) die("Failed to allocate entity list");
+
+    world->entities = new_entities;
+    world->entity_capacity = new_cap;
+}
+
+bool world_add_zombie(World *world, Vec3 pos) {
+    if (!world) return false;
+    world_ensure_entity_capacity(world, world->entity_count + 1);
+    world->entities[world->entity_count++] = (Entity){.pos = pos, .type = ENTITY_ZOMBIE};
+    return true;
+}
+
+uint32_t world_entity_block_count(const World *world) {
+    if (!world) return 0;
+    uint32_t total = 0;
+    for (int i = 0; i < world->entity_count; ++i) {
+        total += entity_render_block_count(&world->entities[i]);
+    }
+    return total;
+}
+
+uint32_t world_write_entity_blocks(const World *world, RenderBlock *out, uint32_t max) {
+    if (!world || !out || max == 0) return 0;
+    uint32_t written = 0;
+    for (int i = 0; i < world->entity_count && written < max; ++i) {
+        written += entity_write_render_blocks(&world->entities[i], out + written, max - written);
+    }
+    return written;
+}
+
 void world_init(World *world, WorldSave *save) {
     memset(world, 0, sizeof(*world));
     world->spawn_position = vec3(0.0f, 4.5f, 0.0f);
@@ -606,6 +648,7 @@ void world_destroy(World *world) {
         chunk_destroy(chunk);
     }
     free(world->chunks);
+    free(world->entities);
     memset(world, 0, sizeof(*world));
 }
 

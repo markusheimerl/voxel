@@ -7,6 +7,7 @@ layout(location = 1) in vec2 inUV;
 // Instance attributes
 layout(location = 2) in vec3 inInstancePos;
 layout(location = 3) in uint inBlockType;
+layout(location = 4) in vec3 inInstanceScale;
 
 // Outputs
 layout(location = 0) out vec2 fragUV;
@@ -21,5 +22,5 @@ layout(push_constant) uniform PushConstants {
 void main() {
     fragUV = inUV;
     fragBlockType = inBlockType;
-    gl_Position = pc.proj * pc.view * vec4(inPos + inInstancePos, 1.0);
+    gl_Position = pc.proj * pc.view * vec4(inPos * inInstanceScale + inInstancePos, 1.0);
 }

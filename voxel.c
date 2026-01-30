@@ -240,6 +240,8 @@ int main(void) {
     if (!world.spawn_set) {
         world.spawn_position = vec3(0.0f, 4.5f, 0.0f);
     }
+
+    world_add_zombie(&world, world.spawn_position);
     
     Player player;
     player_init(&player, world.spawn_position);

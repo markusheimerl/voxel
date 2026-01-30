@@ -24,6 +24,7 @@ typedef struct {
 typedef struct {
     float x, y, z;
     uint32_t type;
+    float sx, sy, sz;
 } InstanceData;
 
 /* -------------------------------------------------------------------------- */
