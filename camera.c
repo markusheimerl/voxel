@@ -50,3 +50,10 @@ void camera_follow_player(Camera *cam, const Player *player) {
     if (!cam || !player) return;
     cam->position = vec3_add(player->position, vec3(0.0f, player_eye_height(), 0.0f));
 }
+
+void camera_reset_view(Camera *cam) {
+    if (!cam) return;
+    cam->yaw = -90.0f;
+    cam->pitch = 0.0f;
+    camera_update_axes(cam);
+}

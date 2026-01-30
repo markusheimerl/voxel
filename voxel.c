@@ -280,8 +280,12 @@ int main(void) {
         player_compute_movement(&player, &camera, keys, movement_enabled,
                               delta_time, &move_delta, &wants_jump);
         
-        player_apply_physics(&player, &world, delta_time, move_delta, wants_jump);
+        bool respawned = player_apply_physics(&player, &world, delta_time, move_delta, wants_jump);
         camera_follow_player(&camera, &player);
+
+        if (respawned) {
+            camera_reset_view(&camera);
+        }
         
         RayHit ray_hit = raycast_blocks(&world, camera.position, camera.front, 6.0f);
         bool interaction_enabled = mouse_state.captured && !player.inventory_open;

@@ -352,9 +352,9 @@ void player_compute_movement(const Player *player, const Camera *camera, const b
     *out_wants_jump = is_key_pressed(keys, ' ');
 }
 
-void player_apply_physics(Player *player, World *world, float delta_time,
+bool player_apply_physics(Player *player, World *world, float delta_time,
                           Vec3 move_delta, bool wants_jump) {
-    if (!player || !world) return;
+    if (!player || !world) return false;
 
     bool was_on_ground = player->on_ground;
     
@@ -404,7 +404,10 @@ void player_apply_physics(Player *player, World *world, float delta_time,
 
     if (player->health == 0) {
         player_respawn(player, world);
+        return true;
     }
+
+    return false;
 }
 
 void player_handle_block_interaction(Player *player, World *world, RayHit ray_hit,

@@ -82,7 +82,7 @@ void player_compute_movement(const Player *player, const Camera *camera, const b
                              bool movement_enabled, float delta_time,
                              Vec3 *out_move_delta, bool *out_wants_jump);
 
-void player_apply_physics(Player *player, World *world, float delta_time,
+bool player_apply_physics(Player *player, World *world, float delta_time,
                           Vec3 move_delta, bool wants_jump);
 
 void player_handle_block_interaction(Player *player, World *world, RayHit ray_hit,
