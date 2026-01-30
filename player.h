@@ -127,6 +127,11 @@ int player_crafting_slot_from_mouse(float aspect, float mouse_x, float mouse_y,
                                     float window_w, float window_h);
 int player_crafting_result_slot_from_mouse(float aspect, float mouse_x, float mouse_y,
                                            float window_w, float window_h);
+void player_handle_mouse_button_inventory(Player *player, uint32_t window_width,
+                                          uint32_t window_height, int mouse_x, int mouse_y,
+                                          uint8_t button);
+void player_update_inventory_mouse_position(Player *player, uint32_t window_width,
+                                            uint32_t window_height, int mouse_x, int mouse_y);
 
 /* -------------------------------------------------------------------------- */
 /* Rendering Helpers                                                          */

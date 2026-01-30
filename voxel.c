@@ -146,50 +146,6 @@ static void handle_key_down(Player *player, MouseState *ms, IOContext *io,
     if (key < 256) keys[key] = true;
 }
 
-static void handle_mouse_button_inventory(Player *player, uint32_t window_width,
-                                         uint32_t window_height, int mouse_x, int mouse_y,
-                                         uint8_t button) {
-    float aspect = (float)window_height / (float)window_width;
-    
-    if (button == IO_MOUSE_BUTTON_LEFT) {
-        int result_slot = player_crafting_result_slot_from_mouse(
-            aspect, (float)mouse_x, (float)mouse_y,
-            (float)window_width, (float)window_height);
-        
-        if (result_slot >= 0) {
-            player_crafting_result_handle_click(player);
-            return;
-        }
-    }
-    
-    int inv_slot = player_inventory_slot_from_mouse(
-        aspect, (float)mouse_x, (float)mouse_y,
-        (float)window_width, (float)window_height);
-    
-    if (inv_slot >= 0) {
-        if (button == IO_MOUSE_BUTTON_LEFT) {
-            player_inventory_handle_click(player, inv_slot);
-        } else if (button == IO_MOUSE_BUTTON_RIGHT) {
-            player_inventory_handle_right_click(player, inv_slot);
-        } else if (button == IO_MOUSE_BUTTON_MIDDLE) {
-            player->selected_slot = (uint8_t)inv_slot;
-        }
-        return;
-    }
-    
-    int craft_slot = player_crafting_slot_from_mouse(
-        aspect, (float)mouse_x, (float)mouse_y,
-        (float)window_width, (float)window_height);
-    
-    if (craft_slot >= 0) {
-        if (button == IO_MOUSE_BUTTON_LEFT) {
-            player_crafting_handle_click(player, craft_slot);
-        } else if (button == IO_MOUSE_BUTTON_RIGHT) {
-            player_crafting_handle_right_click(player, craft_slot);
-        }
-    }
-}
-
 static void handle_mouse_button_game(MouseState *ms, IOContext *io,
                                     bool *left_click, bool *right_click,
                                     uint8_t button) {
@@ -202,17 +158,6 @@ static void handle_mouse_button_game(MouseState *ms, IOContext *io,
     } else if (button == IO_MOUSE_BUTTON_RIGHT && ms->captured) {
         *right_click = true;
     }
-}
-
-static void update_inventory_mouse_position(Player *player, uint32_t window_width,
-                                           uint32_t window_height, int mouse_x, int mouse_y) {
-    if (!player->inventory_open) return;
-    
-    float ndc_x = ((float)mouse_x / (float)window_width) * 2.0f - 1.0f;
-    float ndc_y = 1.0f - ((float)mouse_y / (float)window_height) * 2.0f;
-    player->inventory_mouse_ndc_x = ndc_x;
-    player->inventory_mouse_ndc_y = ndc_y;
-    player->inventory_mouse_valid = true;
 }
 
 static void process_events(IOContext *io, Player *player, MouseState *ms, bool *keys,
@@ -245,16 +190,16 @@ static void process_events(IOContext *io, Player *player, MouseState *ms, bool *
             mouse_x = (float)event.data.mouse_move.x;
             mouse_y = (float)event.data.mouse_move.y;
             mouse_moved = true;
-            update_inventory_mouse_position(player, window_width, window_height,
-                                          event.data.mouse_move.x, event.data.mouse_move.y);
+            player_update_inventory_mouse_position(player, window_width, window_height,
+                                                 event.data.mouse_move.x, event.data.mouse_move.y);
             break;
             
         case IO_EVENT_MOUSE_BUTTON:
             if (player->inventory_open) {
-                handle_mouse_button_inventory(player, window_width, window_height,
-                                             event.data.mouse_button.x,
-                                             event.data.mouse_button.y,
-                                             event.data.mouse_button.button);
+                player_handle_mouse_button_inventory(player, window_width, window_height,
+                                                    event.data.mouse_button.x,
+                                                    event.data.mouse_button.y,
+                                                    event.data.mouse_button.button);
             } else {
                 handle_mouse_button_game(ms, io, left_click, right_click,
                                        event.data.mouse_button.button);
