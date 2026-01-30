@@ -93,6 +93,7 @@ struct Renderer {
     BufferObject inventory_count, inventory_selection, inventory_bg;
     BufferObject crafting_grid, crafting_arrow, crafting_result;
     BufferObject instance_buf;
+    BufferObject health_bar_bg, health_bar_border;
     uint32_t instance_capacity;
 
     VkDescriptorSetLayout descriptor_layout;
@@ -676,6 +677,8 @@ static void init_ui_buffers(Renderer *r, float aspect) {
     create_and_upload_buffer(r, &r->crafting_grid, NULL, sizeof(Vertex) * 32, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     create_and_upload_buffer(r, &r->crafting_arrow, NULL, sizeof(Vertex) * 16, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     create_and_upload_buffer(r, &r->crafting_result, NULL, sizeof(Vertex) * 16, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->health_bar_bg, NULL, sizeof(Vertex) * 60, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->health_bar_border, NULL, sizeof(Vertex) * 80, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     
     /* Initialize crosshair */
     float ch_size = 0.03f;
@@ -703,6 +706,21 @@ static void init_ui_buffers(Renderer *r, float aspect) {
     
     player_crafting_result_slot_vertices(aspect, verts, 16, &count);
     upload_buffer_data(r->device, r->crafting_result.memory, verts, count * sizeof(Vertex));
+
+    /* Initialize health bar border (static) */
+    Vertex health_border[80];
+    uint32_t health_border_count;
+    player_health_bar_border_vertices(aspect, health_border, 80, &health_border_count);
+    upload_buffer_data(r->device, r->health_bar_border.memory, health_border,
+                       health_border_count * sizeof(Vertex));
+
+    /* Initialize health bar background */
+    Player temp_player = {.health = 10};
+    Vertex health_bg[60];
+    uint32_t health_bg_count;
+    player_health_bar_background_vertices(&temp_player, aspect, health_bg, 60, &health_bg_count);
+    upload_buffer_data(r->device, r->health_bar_bg.memory, health_bg,
+                       health_bg_count * sizeof(Vertex));
     
     /* Initialize inventory icon quad */
     Vertex icon_verts[6];
@@ -1055,6 +1073,8 @@ void renderer_destroy(Renderer *r) {
     vkDestroyDescriptorSetLayout(r->device, r->descriptor_layout, NULL);
     
     destroy_buffer_object(r->device, &r->instance_buf);
+    destroy_buffer_object(r->device, &r->health_bar_border);
+    destroy_buffer_object(r->device, &r->health_bar_bg);
     destroy_buffer_object(r->device, &r->crafting_result);
     destroy_buffer_object(r->device, &r->crafting_arrow);
     destroy_buffer_object(r->device, &r->crafting_grid);
@@ -1107,10 +1127,12 @@ static uint32_t fill_instance_buffer(Renderer *r, World *world, const Player *pl
                                      bool highlight, IVec3 highlight_cell,
                                      uint32_t *out_highlight_idx, uint32_t *out_crosshair_idx,
                                      uint32_t *out_inventory_idx, uint32_t *out_selection_idx,
-                                     uint32_t *out_bg_idx, uint32_t *out_icons_start) {
+                                     uint32_t *out_bg_idx, uint32_t *out_health_bg_idx,
+                                     uint32_t *out_health_border_idx,
+                                     uint32_t *out_icons_start) {
     int block_count = world_total_render_blocks(world);
     uint32_t icon_count = player_inventory_icon_instances(player, aspect, NULL, 0);
-    uint32_t total = block_count + 5 + icon_count;
+    uint32_t total = block_count + 7 + icon_count;
     
     ensure_instance_capacity(r, total);
     
@@ -1132,6 +1154,8 @@ static uint32_t fill_instance_buffer(Renderer *r, World *world, const Player *pl
     *out_inventory_idx = idx++;
     *out_selection_idx = idx++;
     *out_bg_idx = idx++;
+    *out_health_bg_idx = idx++;
+    *out_health_border_idx = idx++;
     *out_icons_start = idx;
     
     instances[*out_highlight_idx] = (InstanceData){
@@ -1142,6 +1166,8 @@ static uint32_t fill_instance_buffer(Renderer *r, World *world, const Player *pl
     instances[*out_inventory_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX};
     instances[*out_selection_idx] = (InstanceData){0, 0, 0, INVENTORY_SELECTION_TEXTURE_INDEX};
     instances[*out_bg_idx] = (InstanceData){0, 0, 0, INVENTORY_BG_TEXTURE_INDEX};
+    instances[*out_health_bg_idx] = (InstanceData){0, 0, 0, HEALTH_BAR_INDEX};
+    instances[*out_health_border_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX};
     
     if (icon_count > 0) {
         player_inventory_icon_instances(player, aspect, &instances[*out_icons_start], icon_count);
@@ -1152,6 +1178,14 @@ static uint32_t fill_instance_buffer(Renderer *r, World *world, const Player *pl
 }
 
 static void update_ui_buffers(Renderer *r, const Player *player, float aspect) {
+    /* Update health bar background */
+    Vertex health_verts[60];
+    uint32_t health_count;
+    player_health_bar_background_vertices(player, aspect, health_verts, 60, &health_count);
+    if (health_count > 0) {
+        upload_buffer_data(r->device, r->health_bar_bg.memory, health_verts, health_count * sizeof(Vertex));
+    }
+
     if (!player->inventory_open) return;
     
     Vertex sel_verts[8];
@@ -1211,7 +1245,9 @@ static void record_world_rendering(VkCommandBuffer cmd, Renderer *r, uint32_t im
 }
 
 static void record_crosshair_rendering(VkCommandBuffer cmd, Renderer *r, uint32_t img_idx,
-                                       uint32_t crosshair_idx, const PushConstants *pc_overlay) {
+                                       const Player *player, uint32_t crosshair_idx,
+                                       uint32_t health_bg_idx, uint32_t health_border_idx,
+                                       const PushConstants *pc_overlay) {
     VkBuffer bufs[2];
     VkDeviceSize offsets[2] = {0, 0};
     
@@ -1225,11 +1261,34 @@ static void record_crosshair_rendering(VkCommandBuffer cmd, Renderer *r, uint32_
                             &r->descriptor_sets_highlight[img_idx], 0, NULL);
     
     vkCmdDraw(cmd, 4, 1, 0, crosshair_idx);
+
+    /* Render health bar */
+    uint32_t health_count = player->health > 10 ? 10 : player->health;
+    if (health_count > 0) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_overlay);
+        vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc_overlay), pc_overlay);
+        
+        bufs[0] = r->health_bar_bg.buffer;
+        bufs[1] = r->instance_buf.buffer;
+        vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
+                                &r->descriptor_sets_highlight[img_idx], 0, NULL);
+        vkCmdDraw(cmd, health_count * 6, 1, 0, health_bg_idx);
+    }
+    
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
+    vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc_overlay), pc_overlay);
+    
+    bufs[0] = r->health_bar_border.buffer;
+    vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+    vkCmdDraw(cmd, 80, 1, 0, health_border_idx);
 }
 
 static void record_inventory_rendering(VkCommandBuffer cmd, Renderer *r, uint32_t img_idx,
                                         const Player *player, uint32_t bg_idx, uint32_t inventory_idx,
-                                        uint32_t selection_idx, uint32_t icons_start, uint32_t icon_count,
+                                        uint32_t selection_idx, uint32_t health_bg_idx,
+                                        uint32_t health_border_idx,
+                                        uint32_t icons_start, uint32_t icon_count,
                                         const PushConstants *pc_overlay) {
     VkBuffer bufs[2];
     VkDeviceSize offsets[2] = {0, 0};
@@ -1293,6 +1352,33 @@ static void record_inventory_rendering(VkCommandBuffer cmd, Renderer *r, uint32_
                                 &r->descriptor_sets_highlight[img_idx], 0, NULL);
         vkCmdDraw(cmd, count_count, 1, 0, inventory_idx);
     }
+
+    /* Render health bar */
+    uint32_t health_count = player->health > 10 ? 10 : player->health;
+    if (health_count > 0) {
+        VkBuffer health_bufs[2];
+        VkDeviceSize health_offsets[2] = {0, 0};
+        
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_overlay);
+        vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc_overlay), pc_overlay);
+        
+        health_bufs[0] = r->health_bar_bg.buffer;
+        health_bufs[1] = r->instance_buf.buffer;
+        vkCmdBindVertexBuffers(cmd, 0, 2, health_bufs, health_offsets);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
+                                &r->descriptor_sets_highlight[img_idx], 0, NULL);
+        vkCmdDraw(cmd, health_count * 6, 1, 0, health_bg_idx);
+    }
+    
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
+    vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc_overlay), pc_overlay);
+    
+    VkBuffer border_bufs[2];
+    VkDeviceSize border_offsets[2] = {0, 0};
+    border_bufs[0] = r->health_bar_border.buffer;
+    border_bufs[1] = r->instance_buf.buffer;
+    vkCmdBindVertexBuffers(cmd, 0, 2, border_bufs, border_offsets);
+    vkCmdDraw(cmd, 80, 1, 0, health_border_idx);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1316,11 +1402,13 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
     
     float aspect = (float)r->extent.height / (float)r->extent.width;
     
-    uint32_t highlight_idx, crosshair_idx, inventory_idx, selection_idx, bg_idx, icons_start;
+    uint32_t highlight_idx, crosshair_idx, inventory_idx, selection_idx, bg_idx;
+    uint32_t health_bg_idx, health_border_idx, icons_start;
     int block_count = world_total_render_blocks(world);
     uint32_t icon_count = fill_instance_buffer(r, world, player, aspect, highlight, highlight_cell,
                                                 &highlight_idx, &crosshair_idx, &inventory_idx,
-                                                &selection_idx, &bg_idx, &icons_start);
+                                                &selection_idx, &bg_idx,
+                                                &health_bg_idx, &health_border_idx, &icons_start);
     
     update_ui_buffers(r, player, aspect);
     
@@ -1358,10 +1446,12 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
     record_world_rendering(cmd, r, img_idx, block_count, highlight_idx, highlight, &pc);
     
     if (!player->inventory_open) {
-        record_crosshair_rendering(cmd, r, img_idx, crosshair_idx, &pc_overlay);
+        record_crosshair_rendering(cmd, r, img_idx, player, crosshair_idx,
+                                   health_bg_idx, health_border_idx, &pc_overlay);
     } else {
         record_inventory_rendering(cmd, r, img_idx, player, bg_idx, inventory_idx,
-                                    selection_idx, icons_start, icon_count, &pc_overlay);
+                                    selection_idx, health_bg_idx, health_border_idx,
+                                    icons_start, icon_count, &pc_overlay);
     }
     
     vkCmdEndRenderPass(cmd);

@@ -288,6 +288,7 @@ void player_init(Player *player, Vec3 spawn_position) {
     if (!player) return;
     memset(player, 0, sizeof(*player));
     player->position = spawn_position;
+    player->health = 10;
 }
 
 float player_eye_height(void) {
@@ -1096,4 +1097,85 @@ uint32_t player_inventory_count_vertices(const Player *player, float aspect,
     }
     
     return count;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Health Bar Rendering                                                       */
+/* -------------------------------------------------------------------------- */
+
+void player_health_bar_background_vertices(const Player *player, float aspect,
+                                           Vertex *out_vertices,
+                                           uint32_t max_vertices, uint32_t *out_count) {
+    if (!out_vertices || !out_count || !player) return;
+    
+    const float heart_width = 0.02f;
+    const float heart_height = heart_width / aspect;
+    const float gap = 0.005f;
+    const float bottom_margin = 0.08f;
+    const int num_hearts = 10;
+    
+    const float total_width = num_hearts * heart_width + (num_hearts - 1) * gap;
+    const float start_x = -total_width * 0.5f;
+    const float bottom_y = -1.0f + bottom_margin;
+    
+    uint32_t count = 0;
+    int health = player->health > 10 ? 10 : player->health;
+    
+    for (int i = 0; i < health; ++i) {
+        float left = start_x + i * (heart_width + gap);
+        float right = left + heart_width;
+        float bottom = bottom_y;
+        float top = bottom + heart_height;
+        
+        if (count + 6 > max_vertices) break;
+        
+        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}};
+        out_vertices[count++] = (Vertex){{right, bottom, 0}, {1, 0}};
+        out_vertices[count++] = (Vertex){{right, top, 0}, {1, 1}};
+        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}};
+        out_vertices[count++] = (Vertex){{right, top, 0}, {1, 1}};
+        out_vertices[count++] = (Vertex){{left, top, 0}, {0, 1}};
+    }
+    
+    *out_count = count;
+}
+
+void player_health_bar_border_vertices(float aspect, Vertex *out_vertices,
+                                       uint32_t max_vertices, uint32_t *out_count) {
+    if (!out_vertices || !out_count) return;
+    
+    const float heart_width = 0.02f;
+    const float heart_height = heart_width / aspect;
+    const float gap = 0.005f;
+    const float bottom_margin = 0.08f;
+    const int num_hearts = 10;
+    
+    const float total_width = num_hearts * heart_width + (num_hearts - 1) * gap;
+    const float start_x = -total_width * 0.5f;
+    const float bottom_y = -1.0f + bottom_margin;
+    
+    uint32_t count = 0;
+    
+    for (int i = 0; i < num_hearts; ++i) {
+        float left = start_x + i * (heart_width + gap);
+        float right = left + heart_width;
+        float bottom = bottom_y;
+        float top = bottom + heart_height;
+        
+        if (count + 8 > max_vertices) break;
+        
+        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}};
+        out_vertices[count++] = (Vertex){{right, bottom, 0}, {0, 0}};
+        
+        out_vertices[count++] = (Vertex){{right, bottom, 0}, {0, 0}};
+        out_vertices[count++] = (Vertex){{right, top, 0}, {0, 0}};
+        
+        out_vertices[count++] = (Vertex){{right, top, 0}, {0, 0}};
+        out_vertices[count++] = (Vertex){{left, top, 0}, {0, 0}};
+        
+        out_vertices[count++] = (Vertex){{left, top, 0}, {0, 0}};
+        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}};
+    }
+    
+    *out_count = count;
 }

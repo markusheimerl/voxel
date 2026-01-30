@@ -30,6 +30,7 @@ typedef struct Player {
     bool on_ground;
     bool inventory_open;
     uint8_t selected_slot;
+    uint8_t health;
     
     uint8_t inventory[INVENTORY_SIZE];
     uint8_t inventory_counts[INVENTORY_SIZE];
@@ -150,5 +151,11 @@ uint32_t player_inventory_icon_instances(const Player *player, float aspect,
                                          InstanceData *out_instances, uint32_t max_instances);
 uint32_t player_inventory_count_vertices(const Player *player, float aspect,
                                          Vertex *out_vertices, uint32_t max_vertices);
+
+void player_health_bar_background_vertices(const Player *player, float aspect,
+                                           Vertex *out_vertices,
+                                           uint32_t max_vertices, uint32_t *out_count);
+void player_health_bar_border_vertices(float aspect, Vertex *out_vertices,
+                                       uint32_t max_vertices, uint32_t *out_count);
 
 #endif /* PLAYER_H */
