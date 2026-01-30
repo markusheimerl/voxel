@@ -31,6 +31,7 @@ typedef struct Player {
     bool inventory_open;
     uint8_t selected_slot;
     uint8_t health;
+    float fall_highest_y;
     
     uint8_t inventory[INVENTORY_SIZE];
     uint8_t inventory_counts[INVENTORY_SIZE];

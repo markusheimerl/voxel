@@ -12,6 +12,8 @@ static const float PLAYER_JUMP_HEIGHT = 1.2f;
 static const float PLAYER_EYE_HEIGHT = 1.6f;
 static const float PLAYER_HALF_WIDTH = 0.4f;
 static const float PLAYER_HEIGHT = 1.8f;
+static const float PLAYER_FALL_DAMAGE_SAFE_DISTANCE = 3.0f;
+static const float PLAYER_FALL_DAMAGE_PER_UNIT = 1.0f;
 
 /* -------------------------------------------------------------------------- */
 /* Inventory Layout                                                           */
@@ -289,6 +291,7 @@ void player_init(Player *player, Vec3 spawn_position) {
     memset(player, 0, sizeof(*player));
     player->position = spawn_position;
     player->health = 10;
+    player->fall_highest_y = spawn_position.y;
 }
 
 float player_eye_height(void) {
@@ -321,6 +324,8 @@ void player_compute_movement(const Player *player, const Camera *camera, const b
 void player_apply_physics(Player *player, World *world, float delta_time,
                           Vec3 move_delta, bool wants_jump) {
     if (!player || !world) return;
+
+    bool was_on_ground = player->on_ground;
     
     if (wants_jump && player->on_ground) {
         player->velocity_y = player_jump_velocity();
@@ -341,6 +346,30 @@ void player_apply_physics(Player *player, World *world, float delta_time,
     
     player->position.y += player->velocity_y * delta_time;
     resolve_collision_y(world, &player->position, &player->velocity_y, &player->on_ground);
+
+    if (was_on_ground && !player->on_ground) {
+        player->fall_highest_y = player->position.y;
+    }
+
+    if (!player->on_ground && player->position.y > player->fall_highest_y) {
+        player->fall_highest_y = player->position.y;
+    }
+
+    if (!was_on_ground && player->on_ground) {
+        float fall_distance = player->fall_highest_y - player->position.y;
+        if (fall_distance > PLAYER_FALL_DAMAGE_SAFE_DISTANCE) {
+            float excess = fall_distance - PLAYER_FALL_DAMAGE_SAFE_DISTANCE;
+            int damage = (int)floorf(excess * PLAYER_FALL_DAMAGE_PER_UNIT);
+            if (damage > 0) {
+                if (damage >= player->health) {
+                    player->health = 0;
+                } else {
+                    player->health -= (uint8_t)damage;
+                }
+            }
+        }
+        player->fall_highest_y = player->position.y;
+    }
 }
 
 void player_handle_block_interaction(Player *player, World *world, RayHit ray_hit,
