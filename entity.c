@@ -17,7 +17,13 @@ static uint32_t zombie_block_count(void) {
     return 6u;
 }
 
-static uint32_t zombie_write_blocks(Vec3 pos, float time, RenderBlock *out, uint32_t max) {
+static Vec3 rotate_yaw(Vec3 v, float yaw) {
+    float c = cosf(yaw);
+    float s = sinf(yaw);
+    return vec3(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
+}
+
+static uint32_t zombie_write_blocks(Vec3 pos, float time, float yaw, bool walking, RenderBlock *out, uint32_t max) {
     uint32_t count = 0;
 
     if (max == 0) return 0;
@@ -34,61 +40,85 @@ static uint32_t zombie_write_blocks(Vec3 pos, float time, RenderBlock *out, uint
 
     const float gait_speed = 4.0f;
     const float gait_angle = 0.6f;
-    const float gait = sinf(time * gait_speed) * gait_angle;
+    const float gait = walking ? sinf(time * gait_speed) * gait_angle : 0.0f;
 
     /* Legs (rotate around hip joint) */
     if (count < max) {
+        Vec3 local = vec3(-0.13f, leg_h * 0.5f, 0.0f);
+        Vec3 world = vec3(base_x, base_y, base_z);
+        Vec3 offset = rotate_yaw(local, yaw);
         out[count++] = (RenderBlock){
-            .pos = vec3(base_x - 0.13f, base_y + leg_h * 0.5f, base_z),
+            .pos = vec3(world.x + offset.x, world.y + offset.y, world.z + offset.z),
             .scale = vec3(0.25f, leg_h, 0.25f),
             .type = type,
-            .rot_x = gait
+            .rot_x = gait,
+            .rot_y = yaw
         };
     }
     if (count < max) {
+        Vec3 local = vec3(0.13f, leg_h * 0.5f, 0.0f);
+        Vec3 world = vec3(base_x, base_y, base_z);
+        Vec3 offset = rotate_yaw(local, yaw);
         out[count++] = (RenderBlock){
-            .pos = vec3(base_x + 0.13f, base_y + leg_h * 0.5f, base_z),
+            .pos = vec3(world.x + offset.x, world.y + offset.y, world.z + offset.z),
             .scale = vec3(0.25f, leg_h, 0.25f),
             .type = type,
-            .rot_x = -gait
+            .rot_x = -gait,
+            .rot_y = yaw
         };
     }
 
     /* Torso (narrower and thinner) */
     if (count < max) {
+        Vec3 local = vec3(0.0f, leg_h + torso_h * 0.5f, 0.0f);
+        Vec3 world = vec3(base_x, base_y, base_z);
+        Vec3 offset = rotate_yaw(local, yaw);
         out[count++] = (RenderBlock){
-            .pos = vec3(base_x, base_y + leg_h + torso_h * 0.5f, base_z),
+            .pos = vec3(world.x + offset.x, world.y + offset.y, world.z + offset.z),
             .scale = vec3(0.5f, torso_h, 0.35f),
             .type = type,
-            .rot_x = 0.0f
+            .rot_x = 0.0f,
+            .rot_y = yaw
         };
     }
 
     /* Arms (same cross-section as legs) */
     if (count < max) {
+        Vec3 local = vec3(-0.275f, leg_h + torso_h * 0.88f, 0.35f);
+        Vec3 world = vec3(base_x, base_y, base_z);
+        Vec3 offset = rotate_yaw(local, yaw);
         out[count++] = (RenderBlock){
-            .pos = vec3(base_x - 0.275f, base_y + leg_h + torso_h * 0.88f, base_z + 0.35f),
+            .pos = vec3(world.x + offset.x, world.y + offset.y, world.z + offset.z),
             .scale = vec3(0.16f, 0.16f, 0.7f),
             .type = type,
-            .rot_x = 0.0f
+            .rot_x = 0.0f,
+            .rot_y = yaw
         };
     }
     if (count < max) {
+        Vec3 local = vec3(0.275f, leg_h + torso_h * 0.88f, 0.35f);
+        Vec3 world = vec3(base_x, base_y, base_z);
+        Vec3 offset = rotate_yaw(local, yaw);
         out[count++] = (RenderBlock){
-            .pos = vec3(base_x + 0.275f, base_y + leg_h + torso_h * 0.88f, base_z + 0.35f),
+            .pos = vec3(world.x + offset.x, world.y + offset.y, world.z + offset.z),
             .scale = vec3(0.16f, 0.16f, 0.7f),
             .type = type,
-            .rot_x = 0.0f
+            .rot_x = 0.0f,
+            .rot_y = yaw
         };
     }
 
     /* Head (cube) */
     if (count < max) {
+        Vec3 local = vec3(0.0f, leg_h + torso_h + head_h * 0.5f, 0.0f);
+        Vec3 world = vec3(base_x, base_y, base_z);
+        Vec3 offset = rotate_yaw(local, yaw);
         out[count++] = (RenderBlock){
-            .pos = vec3(base_x, base_y + leg_h + torso_h + head_h * 0.5f, base_z),
+            .pos = vec3(world.x + offset.x, world.y + offset.y, world.z + offset.z),
             .scale = vec3(0.4f, head_h, 0.4f),
             .type = type,
-            .rot_x = 0.0f
+            .rot_x = 0.0f,
+            .rot_y = yaw
         };
     }
 
@@ -220,10 +250,11 @@ uint32_t entity_render_block_count(const Entity *entity) {
 
 uint32_t entity_write_render_blocks(const Entity *entity, float time, RenderBlock *out, uint32_t max) {
     if (!entity || !out || max == 0) return 0;
+    (void)time;
 
     switch (entity->type) {
     case ENTITY_ZOMBIE:
     default:
-        return zombie_write_blocks(entity->pos, time, out, max);
+        return zombie_write_blocks(entity->pos, entity->anim_time, entity->yaw, entity->is_walking, out, max);
     }
 }

@@ -10,6 +10,11 @@ static void die(const char *message) {
     exit(EXIT_FAILURE);
 }
 
+static float rand_range(float min_value, float max_value) {
+    float t = (float)rand() / (float)RAND_MAX;
+    return min_value + (max_value - min_value) * t;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Coordinate Helpers                                                         */
 /* -------------------------------------------------------------------------- */
@@ -615,7 +620,13 @@ bool world_add_zombie(World *world, Vec3 pos) {
         .pos = pos,
         .velocity_y = 0.0f,
         .on_ground = false,
-        .type = ENTITY_ZOMBIE
+        .type = ENTITY_ZOMBIE,
+        .walk_dir = vec3(1.0f, 0.0f, 0.0f),
+        .yaw = -1.57079632679f,
+        .anim_time = 0.0f,
+        .state_timer = rand_range(1.5f, 3.5f),
+        .zombie_state = ZOMBIE_STATE_WALK,
+        .is_walking = true
     };
     return true;
 }
@@ -623,7 +634,43 @@ bool world_add_zombie(World *world, Vec3 pos) {
 void world_update_entities(World *world, float delta_time) {
     if (!world) return;
     for (int i = 0; i < world->entity_count; ++i) {
-        entity_apply_physics(&world->entities[i], world, delta_time);
+        Entity *entity = &world->entities[i];
+        if (entity->type == ENTITY_ZOMBIE) {
+            const float walk_speed = 1.0f;
+            const float walk_time_min = 1.2f;
+            const float walk_time_max = 3.0f;
+            const float idle_time_min = 0.8f;
+            const float idle_time_max = 2.0f;
+
+            entity->state_timer -= delta_time;
+
+            if (entity->zombie_state == ZOMBIE_STATE_WALK) {
+                entity->is_walking = true;
+                entity->pos.x += entity->walk_dir.x * walk_speed * delta_time;
+                entity->pos.z += entity->walk_dir.z * walk_speed * delta_time;
+                entity->anim_time += delta_time;
+
+                if (entity->state_timer <= 0.0f) {
+                    entity->zombie_state = ZOMBIE_STATE_IDLE;
+                    entity->state_timer = rand_range(idle_time_min, idle_time_max);
+                    entity->is_walking = false;
+                }
+            } else {
+                entity->is_walking = false;
+                if (entity->state_timer <= 0.0f) {
+                    const float two_pi = 6.28318530718f;
+                    const float half_pi = 1.57079632679f;
+                    float angle = rand_range(0.0f, two_pi);
+                    entity->walk_dir = vec3(cosf(angle), 0.0f, sinf(angle));
+                    entity->yaw = angle - half_pi;
+                    entity->zombie_state = ZOMBIE_STATE_WALK;
+                    entity->state_timer = rand_range(walk_time_min, walk_time_max);
+                    entity->anim_time = 0.0f;
+                }
+            }
+        }
+
+        entity_apply_physics(entity, world, delta_time);
     }
 }
 

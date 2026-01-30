@@ -9,6 +9,7 @@ layout(location = 2) in vec3 inInstancePos;
 layout(location = 3) in uint inBlockType;
 layout(location = 4) in vec3 inInstanceScale;
 layout(location = 5) in float inInstanceRotX;
+layout(location = 6) in float inInstanceRotY;
 
 // Outputs
 layout(location = 0) out vec2 fragUV;
@@ -30,6 +31,11 @@ void main() {
         float c = cos(inInstanceRotX);
         float s = sin(inInstanceRotX);
         localPos = vec3(p.x, p.y * c - p.z * s, p.y * s + p.z * c) + pivot;
+    }
+    if (inInstanceRotY != 0.0) {
+        float c = cos(inInstanceRotY);
+        float s = sin(inInstanceRotY);
+        localPos = vec3(localPos.x * c - localPos.z * s, localPos.y, localPos.x * s + localPos.z * c);
     }
     gl_Position = pc.proj * pc.view * vec4(localPos + inInstancePos, 1.0);
 }

@@ -14,6 +14,11 @@ typedef enum {
     ENTITY_ZOMBIE = 0
 } EntityType;
 
+typedef enum {
+    ZOMBIE_STATE_IDLE = 0,
+    ZOMBIE_STATE_WALK = 1
+} ZombieState;
+
 typedef struct World World;
 
 typedef struct {
@@ -21,6 +26,12 @@ typedef struct {
     float velocity_y;
     bool on_ground;
     EntityType type;
+    Vec3 walk_dir;
+    float yaw;
+    float anim_time;
+    float state_timer;
+    int zombie_state;
+    bool is_walking;
 } Entity;
 
 typedef struct {
@@ -28,6 +39,7 @@ typedef struct {
     Vec3 scale;
     uint8_t type;
     float rot_x;
+    float rot_y;
 } RenderBlock;
 
 /* -------------------------------------------------------------------------- */
