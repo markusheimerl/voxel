@@ -12,7 +12,7 @@
 #include "camera.h"
 
 /* -------------------------------------------------------------------------- */
-/* Vulkan Push Constants                                                      */
+/* Constants and Types                                                        */
 /* -------------------------------------------------------------------------- */
 
 typedef struct {
@@ -20,103 +20,54 @@ typedef struct {
     Mat4 proj;
 } PushConstants;
 
+typedef struct {
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+} BufferObject;
+
 /* -------------------------------------------------------------------------- */
-/* Block Geometry                                                            */
+/* Block Geometry Data                                                        */
 /* -------------------------------------------------------------------------- */
 
 static const Vertex BLOCK_VERTICES[] = {
-    /* Front */
-    {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}},
-    {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}},
-    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}},
-    {{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
-
-    /* Back */
-    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}},
-    {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}},
-    {{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}},
-    {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}},
-
-    /* Top */
-    {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}},
-    {{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f}},
-    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}},
-    {{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
-
-    /* Bottom */
-    {{-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}},
-    {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f}},
-    {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}},
-    {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}},
-
-    /* Right */
-    {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}},
-    {{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f}},
-    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}},
-    {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f}},
-
-    /* Left */
-    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}},
-    {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}},
-    {{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
-    {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f}},
+    {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}}, {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}},
+    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}}, {{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}}, {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}},
+    {{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f}}, {{-0.5f,  0.5f, -0.5f}, {1.0f, 1.0f}},
+    {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}}, {{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f}},
+    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}}, {{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}},
+    {{-0.5f, -0.5f, -0.5f}, {0.0f, 1.0f}}, {{ 0.5f, -0.5f, -0.5f}, {1.0f, 1.0f}},
+    {{ 0.5f, -0.5f,  0.5f}, {1.0f, 0.0f}}, {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}},
+    {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}}, {{ 0.5f,  0.5f, -0.5f}, {1.0f, 0.0f}},
+    {{ 0.5f,  0.5f,  0.5f}, {1.0f, 1.0f}}, {{ 0.5f, -0.5f,  0.5f}, {0.0f, 1.0f}},
+    {{-0.5f, -0.5f, -0.5f}, {1.0f, 0.0f}}, {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}},
+    {{-0.5f,  0.5f,  0.5f}, {0.0f, 1.0f}}, {{-0.5f, -0.5f,  0.5f}, {1.0f, 1.0f}},
 };
 
 static const uint16_t BLOCK_INDICES[] = {
-     0,  1,  2,  2,  3,  0, /* Front */
-     6,  5,  4,  4,  7,  6, /* Back */
-     8, 11, 10, 10,  9,  8, /* Top */
-    12, 13, 14, 14, 15, 12, /* Bottom */
-    16, 17, 18, 18, 19, 16, /* Right */
-    22, 21, 20, 20, 23, 22  /* Left */
+     0,  1,  2,  2,  3,  0,  6,  5,  4,  4,  7,  6,
+     8, 11, 10, 10,  9,  8, 12, 13, 14, 14, 15, 12,
+    16, 17, 18, 18, 19, 16, 22, 21, 20, 20, 23, 22
 };
 
 static const Vertex EDGE_VERTICES[] = {
-    {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}}, /* 0 */
-    {{ 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}}, /* 1 */
-    {{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}}, /* 2 */
-    {{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}}, /* 3 */
-    {{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}}, /* 4 */
-    {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}}, /* 5 */
-    {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}}, /* 6 */
-    {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}}, /* 7 */
+    {{-0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}}, {{ 0.5f, -0.5f,  0.5f}, {0.0f, 0.0f}},
+    {{ 0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}}, {{-0.5f,  0.5f,  0.5f}, {0.0f, 0.0f}},
+    {{-0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}}, {{ 0.5f, -0.5f, -0.5f}, {0.0f, 0.0f}},
+    {{ 0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}}, {{-0.5f,  0.5f, -0.5f}, {0.0f, 0.0f}},
 };
 
 static const uint16_t EDGE_INDICES[] = {
-    0, 1,  1, 2,  2, 3,  3, 0, /* Front */
-    4, 5,  5, 6,  6, 7,  7, 4, /* Back */
-    0, 4,  1, 5,  2, 6,  3, 7  /* Connecting edges */
+    0, 1,  1, 2,  2, 3,  3, 0,
+    4, 5,  5, 6,  6, 7,  7, 4,
+    0, 4,  1, 5,  2, 6,  3, 7
 };
 
-/* -------------------------------------------------------------------------- */
-/* Error Handling                                                             */
-/* -------------------------------------------------------------------------- */
-
-_Noreturn void die(const char *message) {
-    fprintf(stderr, "Error: %s\n", message);
-    exit(EXIT_FAILURE);
-}
-
-const char *vk_result_to_string(VkResult result) {
-    switch (result) {
-    case VK_SUCCESS: return "VK_SUCCESS";
-    case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
-    case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
-    case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
-    case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
-    case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
-    case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
-    default: return "UNKNOWN_VULKAN_ERROR";
-    }
-}
-
-#define VK_CHECK(call) do { \
-    VkResult result__ = (call); \
-    if (result__ != VK_SUCCESS) { \
-        fprintf(stderr, "%s failed: %s\n", #call, vk_result_to_string(result__)); \
-        exit(EXIT_FAILURE); \
-    } \
-} while (0)
+static const char *TEXTURE_PATHS[ITEM_TYPE_COUNT] = {
+    "textures/dirt.png", "textures/stone.png", "textures/grass.png",
+    "textures/sand.png", "textures/water.png", "textures/wood.png",
+    "textures/leaves.png", "textures/planks.png", "textures/stick.png"
+};
 
 /* -------------------------------------------------------------------------- */
 /* Renderer Structure                                                         */
@@ -136,35 +87,29 @@ struct Renderer {
     VkImageView textures_view[ITEM_TYPE_COUNT];
     VkSampler textures_sampler[ITEM_TYPE_COUNT];
 
-    VkBuffer block_vertex_buffer, block_index_buffer;
-    VkDeviceMemory block_vertex_memory, block_index_memory;
-
-    VkBuffer edge_vertex_buffer, edge_index_buffer;
-    VkDeviceMemory edge_vertex_memory, edge_index_memory;
-
-    VkBuffer crosshair_buffer, inventory_grid_buffer, inventory_icon_buffer;
-    VkBuffer inventory_count_buffer, inventory_selection_buffer, inventory_bg_buffer;
-    VkBuffer crafting_grid_buffer, crafting_arrow_buffer, crafting_result_buffer;
-    VkDeviceMemory crosshair_memory, inventory_grid_memory, inventory_icon_memory;
-    VkDeviceMemory inventory_count_memory, inventory_selection_memory, inventory_bg_memory;
-    VkDeviceMemory crafting_grid_memory, crafting_arrow_memory, crafting_result_memory;
-
-    uint32_t inventory_grid_count, inventory_icon_count;
-    uint32_t crafting_grid_count, crafting_arrow_count, crafting_result_count;
-
-    VkBuffer instance_buffer;
-    VkDeviceMemory instance_memory;
+    BufferObject block_vertex, block_index;
+    BufferObject edge_vertex, edge_index;
+    BufferObject crosshair, inventory_grid, inventory_icon;
+    BufferObject inventory_count, inventory_selection, inventory_bg;
+    BufferObject crafting_grid, crafting_arrow, crafting_result;
+    BufferObject instance_buf;
     uint32_t instance_capacity;
 
     VkDescriptorSetLayout descriptor_layout;
     VkPipelineLayout pipeline_layout;
+    VkPipeline pipeline_solid, pipeline_wireframe, pipeline_crosshair, pipeline_overlay;
 
     VkSwapchainKHR swapchain;
     VkImageView *swapchain_views;
     VkFramebuffer *swapchain_framebuffers;
     VkRenderPass render_pass;
-    
-    VkPipeline pipeline_solid, pipeline_wireframe, pipeline_crosshair, pipeline_overlay;
+    uint32_t image_count;
+    VkExtent2D extent;
+    VkFormat surface_format;
+
+    VkImage depth_image;
+    VkDeviceMemory depth_memory;
+    VkImageView depth_view;
 
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet *descriptor_sets_normal;
@@ -172,20 +117,42 @@ struct Renderer {
 
     VkCommandBuffer *command_buffers;
 
-    VkImage depth_image;
-    VkDeviceMemory depth_memory;
-    VkImageView depth_view;
-
-    uint32_t image_count;
-    VkExtent2D extent;
-    VkFormat surface_format;
-
     VkSemaphore image_available, render_finished;
     VkFence in_flight;
 };
 
 /* -------------------------------------------------------------------------- */
-/* Memory Helpers                                                             */
+/* Error Handling                                                             */
+/* -------------------------------------------------------------------------- */
+
+_Noreturn static void die(const char *message) {
+    fprintf(stderr, "Error: %s\n", message);
+    exit(EXIT_FAILURE);
+}
+
+static const char *vk_result_string(VkResult result) {
+    switch (result) {
+    case VK_SUCCESS: return "VK_SUCCESS";
+    case VK_ERROR_OUT_OF_HOST_MEMORY: return "VK_ERROR_OUT_OF_HOST_MEMORY";
+    case VK_ERROR_OUT_OF_DEVICE_MEMORY: return "VK_ERROR_OUT_OF_DEVICE_MEMORY";
+    case VK_ERROR_DEVICE_LOST: return "VK_ERROR_DEVICE_LOST";
+    case VK_ERROR_SURFACE_LOST_KHR: return "VK_ERROR_SURFACE_LOST_KHR";
+    case VK_ERROR_OUT_OF_DATE_KHR: return "VK_ERROR_OUT_OF_DATE_KHR";
+    case VK_SUBOPTIMAL_KHR: return "VK_SUBOPTIMAL_KHR";
+    default: return "UNKNOWN_VULKAN_ERROR";
+    }
+}
+
+#define VK_CHECK(call) do { \
+    VkResult result__ = (call); \
+    if (result__ != VK_SUCCESS) { \
+        fprintf(stderr, "%s failed: %s\n", #call, vk_result_string(result__)); \
+        exit(EXIT_FAILURE); \
+    } \
+} while (0)
+
+/* -------------------------------------------------------------------------- */
+/* Memory and Buffer Helpers                                                  */
 /* -------------------------------------------------------------------------- */
 
 static uint32_t find_memory_type(VkPhysicalDevice pd, uint32_t filter, VkMemoryPropertyFlags props) {
@@ -201,7 +168,7 @@ static uint32_t find_memory_type(VkPhysicalDevice pd, uint32_t filter, VkMemoryP
 }
 
 static void create_buffer(Renderer *r, VkDeviceSize size, VkBufferUsageFlags usage,
-                         VkMemoryPropertyFlags props, VkBuffer *buf, VkDeviceMemory *mem) {
+                          VkMemoryPropertyFlags props, VkBuffer *buf, VkDeviceMemory *mem) {
     VkBufferCreateInfo buf_info = {
         .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
         .size = size,
@@ -222,16 +189,28 @@ static void create_buffer(Renderer *r, VkDeviceSize size, VkBufferUsageFlags usa
     VK_CHECK(vkBindBufferMemory(r->device, *buf, *mem, 0));
 }
 
-static void upload_buffer(VkDevice dev, VkDeviceMemory mem, const void *data, VkDeviceSize size) {
+static void upload_buffer_data(VkDevice dev, VkDeviceMemory mem, const void *data, VkDeviceSize size) {
     void *mapped;
     VK_CHECK(vkMapMemory(dev, mem, 0, size, 0, &mapped));
     memcpy(mapped, data, size);
     vkUnmapMemory(dev, mem);
 }
 
+static void create_and_upload_buffer(Renderer *r, BufferObject *obj, const void *data,
+                                     VkDeviceSize size, VkBufferUsageFlags usage) {
+    VkMemoryPropertyFlags props = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    create_buffer(r, size, usage, props, &obj->buffer, &obj->memory);
+    if (data) upload_buffer_data(r->device, obj->memory, data, size);
+}
+
+static void destroy_buffer_object(VkDevice dev, BufferObject *obj) {
+    if (obj->buffer) vkDestroyBuffer(dev, obj->buffer, NULL);
+    if (obj->memory) vkFreeMemory(dev, obj->memory, NULL);
+}
+
 static void create_image(Renderer *r, uint32_t w, uint32_t h, VkFormat fmt, VkImageTiling tiling,
-                        VkImageUsageFlags usage, VkMemoryPropertyFlags props,
-                        VkImage *img, VkDeviceMemory *mem) {
+                         VkImageUsageFlags usage, VkMemoryPropertyFlags props,
+                         VkImage *img, VkDeviceMemory *mem) {
     VkImageCreateInfo img_info = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
         .imageType = VK_IMAGE_TYPE_2D,
@@ -345,8 +324,7 @@ static void copy_buffer_to_image(Renderer *r, VkBuffer buf, VkImage img, uint32_
 /* Texture Loading                                                            */
 /* -------------------------------------------------------------------------- */
 
-static void load_texture(Renderer *r, const char *filename, VkImage *img, VkDeviceMemory *mem,
-                        VkImageView *view, VkSampler *sampler) {
+static void load_png_data(const char *filename, uint8_t **pixels, uint32_t *w, uint32_t *h) {
     FILE *fp = fopen(filename, "rb");
     if (!fp) die("Failed to open texture file");
     
@@ -365,8 +343,8 @@ static void load_texture(Renderer *r, const char *filename, VkImage *img, VkDevi
     png_init_io(png, fp);
     png_read_info(png, info);
     
-    uint32_t w = png_get_image_width(png, info);
-    uint32_t h = png_get_image_height(png, info);
+    *w = png_get_image_width(png, info);
+    *h = png_get_image_height(png, info);
     
     if (png_get_bit_depth(png, info) == 16) png_set_strip_16(png);
     if (png_get_color_type(png, info) == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png);
@@ -386,10 +364,10 @@ static void load_texture(Renderer *r, const char *filename, VkImage *img, VkDevi
     png_read_update_info(png, info);
     
     size_t row_bytes = png_get_rowbytes(png, info);
-    uint8_t *pixels = malloc(row_bytes * h);
-    png_bytep *row_ptrs = malloc(sizeof(png_bytep) * h);
+    *pixels = malloc(row_bytes * (*h));
+    png_bytep *row_ptrs = malloc(sizeof(png_bytep) * (*h));
     
-    for (uint32_t y = 0; y < h; y++) row_ptrs[y] = pixels + y * row_bytes;
+    for (uint32_t y = 0; y < *h; y++) row_ptrs[y] = (*pixels) + y * row_bytes;
     
     png_read_image(png, row_ptrs);
     png_read_end(png, NULL);
@@ -397,21 +375,28 @@ static void load_texture(Renderer *r, const char *filename, VkImage *img, VkDevi
     free(row_ptrs);
     png_destroy_read_struct(&png, &info, NULL);
     fclose(fp);
+}
+
+static void load_texture(Renderer *r, const char *filename, VkImage *img, VkDeviceMemory *mem,
+                         VkImageView *view, VkSampler *sampler) {
+    uint8_t *pixels;
+    uint32_t w, h;
+    load_png_data(filename, &pixels, &w, &h);
     
     VkDeviceSize img_size = w * h * 4;
     
     VkBuffer staging_buf;
     VkDeviceMemory staging_mem;
     create_buffer(r, img_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &staging_buf, &staging_mem);
+                  VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                  &staging_buf, &staging_mem);
     
-    upload_buffer(r->device, staging_mem, pixels, img_size);
+    upload_buffer_data(r->device, staging_mem, pixels, img_size);
     free(pixels);
     
     create_image(r, w, h, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, img, mem);
+                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, img, mem);
     
     transition_image_layout(r, *img, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     copy_buffer_to_image(r, staging_buf, *img, w, h);
@@ -477,10 +462,10 @@ static VkShaderModule load_shader(VkDevice dev, const char *path) {
 /* Pipeline Creation                                                          */
 /* -------------------------------------------------------------------------- */
 
-static VkPipeline create_pipeline(Renderer *r, VkShaderModule vert, VkShaderModule frag,
-                                 VkPrimitiveTopology topology, VkPolygonMode polygon_mode,
-                                 VkCullModeFlags cull, bool depth_test, bool depth_write,
-                                 bool enable_blend) {
+static VkPipeline create_graphics_pipeline(Renderer *r, VkShaderModule vert, VkShaderModule frag,
+                                           VkPrimitiveTopology topology, VkPolygonMode polygon_mode,
+                                           VkCullModeFlags cull, bool depth_test, bool depth_write,
+                                           bool enable_blend) {
     VkPipelineShaderStageCreateInfo stages[2] = {
         {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_VERTEX_BIT, .module = vert, .pName = "main"},
         {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO, .stage = VK_SHADER_STAGE_FRAGMENT_BIT, .module = frag, .pName = "main"}
@@ -575,14 +560,10 @@ static VkPipeline create_pipeline(Renderer *r, VkShaderModule vert, VkShaderModu
 }
 
 /* -------------------------------------------------------------------------- */
-/* Renderer Creation                                                          */
+/* Initialization Helpers                                                     */
 /* -------------------------------------------------------------------------- */
 
-Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, uint32_t fb_h) {
-    Renderer *r = calloc(1, sizeof(*r));
-    if (!r) die("Failed to allocate renderer");
-    
-    // Instance
+static void init_instance_and_surface(Renderer *r, void *display, unsigned long window) {
     const char *inst_exts[] = {VK_KHR_SURFACE_EXTENSION_NAME, VK_KHR_XLIB_SURFACE_EXTENSION_NAME};
     VkApplicationInfo app_info = {
         .sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
@@ -597,15 +578,15 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
     };
     VK_CHECK(vkCreateInstance(&inst_info, NULL, &r->instance));
     
-    // Surface
     VkXlibSurfaceCreateInfoKHR surf_info = {
         .sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR,
         .dpy = (Display *)display,
         .window = (Window)window
     };
     VK_CHECK(vkCreateXlibSurfaceKHR(r->instance, &surf_info, NULL, &r->surface));
-    
-    // Physical Device
+}
+
+static void init_physical_device(Renderer *r) {
     uint32_t dev_count = 0;
     VK_CHECK(vkEnumeratePhysicalDevices(r->instance, &dev_count, NULL));
     if (dev_count == 0) die("No Vulkan devices");
@@ -636,8 +617,9 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
     }
     free(devs);
     if (r->physical_device == VK_NULL_HANDLE) die("No suitable GPU");
-    
-    // Logical Device
+}
+
+static void init_device_and_queue(Renderer *r) {
     float queue_priority = 1.0f;
     VkDeviceQueueCreateInfo queue_info = {
         .sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
@@ -662,90 +644,79 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
     
     vkGetDeviceQueue(r->device, r->graphics_family, 0, &r->graphics_queue);
     
-    // Command Pool
     VkCommandPoolCreateInfo pool_info = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
         .queueFamilyIndex = r->graphics_family,
         .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
     };
     VK_CHECK(vkCreateCommandPool(r->device, &pool_info, NULL, &r->command_pool));
-    
-    // Textures
-    const char *tex_files[ITEM_TYPE_COUNT] = {
-        "textures/dirt.png", "textures/stone.png", "textures/grass.png",
-        "textures/sand.png", "textures/water.png", "textures/wood.png", "textures/leaves.png",
-        "textures/planks.png", "textures/stick.png"
-    };
-    
+}
+
+static void init_textures(Renderer *r) {
     for (uint32_t i = 0; i < ITEM_TYPE_COUNT; i++) {
-        load_texture(r, tex_files[i], &r->textures[i], &r->textures_memory[i],
-                    &r->textures_view[i], &r->textures_sampler[i]);
+        load_texture(r, TEXTURE_PATHS[i], &r->textures[i], &r->textures_memory[i],
+                     &r->textures_view[i], &r->textures_sampler[i]);
     }
-    
-    // Static Geometry Buffers
-    create_buffer(r, sizeof(BLOCK_VERTICES), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->block_vertex_buffer, &r->block_vertex_memory);
-    upload_buffer(r->device, r->block_vertex_memory, BLOCK_VERTICES, sizeof(BLOCK_VERTICES));
-    
-    create_buffer(r, sizeof(BLOCK_INDICES), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->block_index_buffer, &r->block_index_memory);
-    upload_buffer(r->device, r->block_index_memory, BLOCK_INDICES, sizeof(BLOCK_INDICES));
-    
-    create_buffer(r, sizeof(EDGE_VERTICES), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->edge_vertex_buffer, &r->edge_vertex_memory);
-    upload_buffer(r->device, r->edge_vertex_memory, EDGE_VERTICES, sizeof(EDGE_VERTICES));
-    
-    create_buffer(r, sizeof(EDGE_INDICES), VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->edge_index_buffer, &r->edge_index_memory);
-    upload_buffer(r->device, r->edge_index_memory, EDGE_INDICES, sizeof(EDGE_INDICES));
-    
-    // Dynamic Buffers
-    create_buffer(r, sizeof(Vertex) * 4, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->crosshair_buffer, &r->crosshair_memory);
-    
-    create_buffer(r, sizeof(Vertex) * 32, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->inventory_grid_buffer, &r->inventory_grid_memory);
-    
-    create_buffer(r, sizeof(Vertex) * 6, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->inventory_icon_buffer, &r->inventory_icon_memory);
-    
-    create_buffer(r, sizeof(Vertex) * 1500, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->inventory_count_buffer, &r->inventory_count_memory);
-    
-    create_buffer(r, sizeof(Vertex) * 8, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->inventory_selection_buffer, &r->inventory_selection_memory);
-    
-    create_buffer(r, sizeof(Vertex) * 18, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->inventory_bg_buffer, &r->inventory_bg_memory);
+}
 
-    create_buffer(r, sizeof(Vertex) * 32, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->crafting_grid_buffer, &r->crafting_grid_memory);
+static void init_static_buffers(Renderer *r) {
+    create_and_upload_buffer(r, &r->block_vertex, BLOCK_VERTICES, sizeof(BLOCK_VERTICES), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->block_index, BLOCK_INDICES, sizeof(BLOCK_INDICES), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->edge_vertex, EDGE_VERTICES, sizeof(EDGE_VERTICES), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->edge_index, EDGE_INDICES, sizeof(EDGE_INDICES), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+}
 
-    create_buffer(r, sizeof(Vertex) * 16, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->crafting_arrow_buffer, &r->crafting_arrow_memory);
-
-    create_buffer(r, sizeof(Vertex) * 16, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->crafting_result_buffer, &r->crafting_result_memory);
+static void init_ui_buffers(Renderer *r, float aspect) {
+    create_and_upload_buffer(r, &r->crosshair, NULL, sizeof(Vertex) * 4, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->inventory_grid, NULL, sizeof(Vertex) * 32, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->inventory_icon, NULL, sizeof(Vertex) * 6, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->inventory_count, NULL, sizeof(Vertex) * 1500, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->inventory_selection, NULL, sizeof(Vertex) * 8, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->inventory_bg, NULL, sizeof(Vertex) * 18, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->crafting_grid, NULL, sizeof(Vertex) * 32, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->crafting_arrow, NULL, sizeof(Vertex) * 16, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+    create_and_upload_buffer(r, &r->crafting_result, NULL, sizeof(Vertex) * 16, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     
+    /* Initialize crosshair */
+    float ch_size = 0.03f;
+    Vertex ch_verts[4] = {
+        {{-ch_size * aspect, 0, 0}, {0, 0}}, {{ ch_size * aspect, 0, 0}, {1, 0}},
+        {{0, -ch_size, 0}, {0, 0}}, {{0,  ch_size, 0}, {1, 0}}
+    };
+    upload_buffer_data(r->device, r->crosshair.memory, ch_verts, sizeof(ch_verts));
+    
+    /* Initialize inventory grid */
+    float h_step, v_step;
+    Vertex grid_verts[32];
+    uint32_t grid_count;
+    player_inventory_grid_vertices(aspect, grid_verts, 32, &grid_count, &h_step, &v_step);
+    upload_buffer_data(r->device, r->inventory_grid.memory, grid_verts, grid_count * sizeof(Vertex));
+    
+    /* Initialize crafting UI */
+    Vertex verts[32];
+    uint32_t count;
+    player_crafting_grid_vertices(aspect, verts, 32, &count);
+    upload_buffer_data(r->device, r->crafting_grid.memory, verts, count * sizeof(Vertex));
+    
+    player_crafting_arrow_vertices(aspect, verts, 16, &count);
+    upload_buffer_data(r->device, r->crafting_arrow.memory, verts, count * sizeof(Vertex));
+    
+    player_crafting_result_slot_vertices(aspect, verts, 16, &count);
+    upload_buffer_data(r->device, r->crafting_result.memory, verts, count * sizeof(Vertex));
+    
+    /* Initialize inventory icon quad */
+    Vertex icon_verts[6];
+    uint32_t icon_count;
+    player_inventory_icon_vertices(h_step, v_step, icon_verts, 6, &icon_count);
+    upload_buffer_data(r->device, r->inventory_icon.memory, icon_verts, icon_count * sizeof(Vertex));
+}
+
+static void init_instance_buffer(Renderer *r) {
     r->instance_capacity = INITIAL_INSTANCE_CAPACITY;
-    create_buffer(r, r->instance_capacity * sizeof(InstanceData), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                 VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                 &r->instance_buffer, &r->instance_memory);
-    
-    // Descriptor Set Layout
+    create_and_upload_buffer(r, &r->instance_buf, NULL, r->instance_capacity * sizeof(InstanceData), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+}
+
+static void init_descriptor_layout(Renderer *r) {
     VkDescriptorSetLayoutBinding sampler_binding = {
         .binding = 0,
         .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -759,8 +730,9 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
         .pBindings = &sampler_binding
     };
     VK_CHECK(vkCreateDescriptorSetLayout(r->device, &layout_info, NULL, &r->descriptor_layout));
-    
-    // Pipeline Layout
+}
+
+static void init_pipeline_layout(Renderer *r) {
     VkPushConstantRange push_range = {
         .stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
         .offset = 0,
@@ -773,8 +745,9 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
         .pushConstantRangeCount = 1, .pPushConstantRanges = &push_range
     };
     VK_CHECK(vkCreatePipelineLayout(r->device, &pipe_layout_info, NULL, &r->pipeline_layout));
-    
-    // Swapchain
+}
+
+static void init_swapchain(Renderer *r, uint32_t fb_w, uint32_t fb_h) {
     VkSurfaceCapabilitiesKHR caps;
     VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(r->physical_device, r->surface, &caps));
     
@@ -834,11 +807,12 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
         VK_CHECK(vkCreateImageView(r->device, &view_info, NULL, &r->swapchain_views[i]));
     }
     free(imgs);
-    
-    // Depth Buffer
+}
+
+static void init_depth_buffer(Renderer *r) {
     create_image(r, r->extent.width, r->extent.height, VK_FORMAT_D32_SFLOAT,
-                VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &r->depth_image, &r->depth_memory);
+                 VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, &r->depth_image, &r->depth_memory);
     
     VkImageViewCreateInfo depth_view_info = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -848,8 +822,9 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
         .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1}
     };
     VK_CHECK(vkCreateImageView(r->device, &depth_view_info, NULL, &r->depth_view));
-    
-    // Render Pass
+}
+
+static void init_render_pass(Renderer *r) {
     VkAttachmentDescription attachments[2] = {
         {
             .format = r->surface_format, .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -888,27 +863,29 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
         .dependencyCount = 1, .pDependencies = &dependency
     };
     VK_CHECK(vkCreateRenderPass(r->device, &rp_info, NULL, &r->render_pass));
-    
-    // Pipelines
+}
+
+static void init_pipelines(Renderer *r) {
     VkShaderModule vert = load_shader(r->device, "shaders/vert.spv");
     VkShaderModule frag = load_shader(r->device, "shaders/frag.spv");
     
-    r->pipeline_solid = create_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-                                       VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, true, true, false);
+    r->pipeline_solid = create_graphics_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                                                  VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, true, true, false);
     
-    r->pipeline_wireframe = create_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
-                                           VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, true, false, false);
+    r->pipeline_wireframe = create_graphics_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
+                                                      VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, true, false, false);
     
-    r->pipeline_crosshair = create_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
-                                           VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, false, false, false);
+    r->pipeline_crosshair = create_graphics_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_LINE_LIST,
+                                                      VK_POLYGON_MODE_LINE, VK_CULL_MODE_NONE, false, false, false);
     
-    r->pipeline_overlay = create_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-                                         VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, false, false, true);
+    r->pipeline_overlay = create_graphics_pipeline(r, vert, frag, VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
+                                                    VK_POLYGON_MODE_FILL, VK_CULL_MODE_BACK_BIT, false, false, true);
     
     vkDestroyShaderModule(r->device, vert, NULL);
     vkDestroyShaderModule(r->device, frag, NULL);
-    
-    // Framebuffers
+}
+
+static void init_framebuffers(Renderer *r) {
     r->swapchain_framebuffers = malloc(sizeof(VkFramebuffer) * r->image_count);
     for (uint32_t i = 0; i < r->image_count; i++) {
         VkImageView atts[] = {r->swapchain_views[i], r->depth_view};
@@ -922,8 +899,9 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
         };
         VK_CHECK(vkCreateFramebuffer(r->device, &fb_info, NULL, &r->swapchain_framebuffers[i]));
     }
-    
-    // Descriptor Pool
+}
+
+static void init_descriptor_sets(Renderer *r) {
     VkDescriptorPoolSize pool_size = {
         .type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
         .descriptorCount = r->image_count * ITEM_TYPE_COUNT * 2
@@ -936,7 +914,6 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
     };
     VK_CHECK(vkCreateDescriptorPool(r->device, &desc_pool_info, NULL, &r->descriptor_pool));
     
-    // Descriptor Sets
     VkDescriptorSetLayout *layouts = malloc(sizeof(VkDescriptorSetLayout) * r->image_count);
     for (uint32_t i = 0; i < r->image_count; i++) layouts[i] = r->descriptor_layout;
     
@@ -978,8 +955,9 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
         write.dstSet = r->descriptor_sets_highlight[i];
         vkUpdateDescriptorSets(r->device, 1, &write, 0, NULL);
     }
-    
-    // Command Buffers
+}
+
+static void init_command_buffers(Renderer *r) {
     r->command_buffers = malloc(sizeof(VkCommandBuffer) * r->image_count);
     VkCommandBufferAllocateInfo cmd_alloc = {
         .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -988,52 +966,44 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t fb_w, ui
         .commandBufferCount = r->image_count
     };
     VK_CHECK(vkAllocateCommandBuffers(r->device, &cmd_alloc, r->command_buffers));
-    
-    // Sync Objects
+}
+
+static void init_sync_objects(Renderer *r) {
     VkSemaphoreCreateInfo sem_info = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     VkFenceCreateInfo fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .flags = VK_FENCE_CREATE_SIGNALED_BIT};
     
     VK_CHECK(vkCreateSemaphore(r->device, &sem_info, NULL, &r->image_available));
     VK_CHECK(vkCreateSemaphore(r->device, &sem_info, NULL, &r->render_finished));
     VK_CHECK(vkCreateFence(r->device, &fence_info, NULL, &r->in_flight));
-    
-    // Initialize Crosshair
-    float aspect = (float)r->extent.height / (float)r->extent.width;
-    float ch_size = 0.03f;
-    Vertex ch_verts[4] = {
-        {{-ch_size * aspect, 0, 0}, {0, 0}}, {{ ch_size * aspect, 0, 0}, {1, 0}},
-        {{0, -ch_size, 0}, {0, 0}}, {{0,  ch_size, 0}, {1, 0}}
-    };
-    upload_buffer(r->device, r->crosshair_memory, ch_verts, sizeof(ch_verts));
-    
-    // Initialize Inventory Grid
-    float h_step, v_step;
-    Vertex grid_verts[32];
-    player_inventory_grid_vertices(aspect, grid_verts, 32, &r->inventory_grid_count, &h_step, &v_step);
-    upload_buffer(r->device, r->inventory_grid_memory, grid_verts, r->inventory_grid_count * sizeof(Vertex));
+}
 
-    // Initialize Crafting Grid
-    Vertex crafting_grid_verts[32];
-    player_crafting_grid_vertices(aspect, crafting_grid_verts, 32, &r->crafting_grid_count);
-    upload_buffer(r->device, r->crafting_grid_memory, crafting_grid_verts,
-                  r->crafting_grid_count * sizeof(Vertex));
+/* -------------------------------------------------------------------------- */
+/* Renderer Creation                                                          */
+/* -------------------------------------------------------------------------- */
 
-    // Initialize Crafting Arrow
-    Vertex crafting_arrow_verts[16];
-    player_crafting_arrow_vertices(aspect, crafting_arrow_verts, 16, &r->crafting_arrow_count);
-    upload_buffer(r->device, r->crafting_arrow_memory, crafting_arrow_verts,
-                  r->crafting_arrow_count * sizeof(Vertex));
-
-    // Initialize Crafting Result Slot
-    Vertex crafting_result_verts[16];
-    player_crafting_result_slot_vertices(aspect, crafting_result_verts, 16, &r->crafting_result_count);
-    upload_buffer(r->device, r->crafting_result_memory, crafting_result_verts,
-                  r->crafting_result_count * sizeof(Vertex));
+Renderer *renderer_create(void *display, unsigned long window, uint32_t width, uint32_t height) {
+    Renderer *r = calloc(1, sizeof(*r));
+    if (!r) die("Failed to allocate renderer");
     
-    // Initialize Inventory Icon Quad
-    Vertex icon_verts[6];
-    player_inventory_icon_vertices(h_step, v_step, icon_verts, 6, &r->inventory_icon_count);
-    upload_buffer(r->device, r->inventory_icon_memory, icon_verts, r->inventory_icon_count * sizeof(Vertex));
+    float aspect = (float)height / (float)width;
+    
+    init_instance_and_surface(r, display, window);
+    init_physical_device(r);
+    init_device_and_queue(r);
+    init_textures(r);
+    init_static_buffers(r);
+    init_ui_buffers(r, aspect);
+    init_instance_buffer(r);
+    init_descriptor_layout(r);
+    init_pipeline_layout(r);
+    init_swapchain(r, width, height);
+    init_depth_buffer(r);
+    init_render_pass(r);
+    init_pipelines(r);
+    init_framebuffers(r);
+    init_descriptor_sets(r);
+    init_command_buffers(r);
+    init_sync_objects(r);
     
     return r;
 }
@@ -1084,38 +1054,20 @@ void renderer_destroy(Renderer *r) {
     vkDestroyPipelineLayout(r->device, r->pipeline_layout, NULL);
     vkDestroyDescriptorSetLayout(r->device, r->descriptor_layout, NULL);
     
-    vkDestroyBuffer(r->device, r->instance_buffer, NULL);
-    vkFreeMemory(r->device, r->instance_memory, NULL);
-
-    vkDestroyBuffer(r->device, r->crafting_result_buffer, NULL);
-    vkFreeMemory(r->device, r->crafting_result_memory, NULL);
-    vkDestroyBuffer(r->device, r->crafting_arrow_buffer, NULL);
-    vkFreeMemory(r->device, r->crafting_arrow_memory, NULL);
-    vkDestroyBuffer(r->device, r->crafting_grid_buffer, NULL);
-    vkFreeMemory(r->device, r->crafting_grid_memory, NULL);
-    
-    vkDestroyBuffer(r->device, r->inventory_bg_buffer, NULL);
-    vkFreeMemory(r->device, r->inventory_bg_memory, NULL);
-    vkDestroyBuffer(r->device, r->inventory_selection_buffer, NULL);
-    vkFreeMemory(r->device, r->inventory_selection_memory, NULL);
-    vkDestroyBuffer(r->device, r->inventory_count_buffer, NULL);
-    vkFreeMemory(r->device, r->inventory_count_memory, NULL);
-    vkDestroyBuffer(r->device, r->inventory_icon_buffer, NULL);
-    vkFreeMemory(r->device, r->inventory_icon_memory, NULL);
-    vkDestroyBuffer(r->device, r->inventory_grid_buffer, NULL);
-    vkFreeMemory(r->device, r->inventory_grid_memory, NULL);
-    vkDestroyBuffer(r->device, r->crosshair_buffer, NULL);
-    vkFreeMemory(r->device, r->crosshair_memory, NULL);
-    
-    vkDestroyBuffer(r->device, r->edge_index_buffer, NULL);
-    vkFreeMemory(r->device, r->edge_index_memory, NULL);
-    vkDestroyBuffer(r->device, r->edge_vertex_buffer, NULL);
-    vkFreeMemory(r->device, r->edge_vertex_memory, NULL);
-    
-    vkDestroyBuffer(r->device, r->block_index_buffer, NULL);
-    vkFreeMemory(r->device, r->block_index_memory, NULL);
-    vkDestroyBuffer(r->device, r->block_vertex_buffer, NULL);
-    vkFreeMemory(r->device, r->block_vertex_memory, NULL);
+    destroy_buffer_object(r->device, &r->instance_buf);
+    destroy_buffer_object(r->device, &r->crafting_result);
+    destroy_buffer_object(r->device, &r->crafting_arrow);
+    destroy_buffer_object(r->device, &r->crafting_grid);
+    destroy_buffer_object(r->device, &r->inventory_bg);
+    destroy_buffer_object(r->device, &r->inventory_selection);
+    destroy_buffer_object(r->device, &r->inventory_count);
+    destroy_buffer_object(r->device, &r->inventory_icon);
+    destroy_buffer_object(r->device, &r->inventory_grid);
+    destroy_buffer_object(r->device, &r->crosshair);
+    destroy_buffer_object(r->device, &r->edge_index);
+    destroy_buffer_object(r->device, &r->edge_vertex);
+    destroy_buffer_object(r->device, &r->block_index);
+    destroy_buffer_object(r->device, &r->block_vertex);
     
     for (uint32_t i = 0; i < ITEM_TYPE_COUNT; i++) {
         vkDestroySampler(r->device, r->textures_sampler[i], NULL);
@@ -1133,50 +1085,37 @@ void renderer_destroy(Renderer *r) {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Frame Rendering                                                            */
+/* Frame Rendering Helpers                                                    */
 /* -------------------------------------------------------------------------- */
 
-void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera *camera,
-                        bool highlight, IVec3 highlight_cell) {
-    if (!r) return;
+static void ensure_instance_capacity(Renderer *r, uint32_t required) {
+    if (required <= r->instance_capacity) return;
     
-    VK_CHECK(vkWaitForFences(r->device, 1, &r->in_flight, VK_TRUE, UINT64_MAX));
-    VK_CHECK(vkResetFences(r->device, 1, &r->in_flight));
+    uint32_t new_cap = r->instance_capacity;
+    while (new_cap < required) new_cap *= 2;
+    if (new_cap > MAX_INSTANCE_CAPACITY) die("Instance buffer overflow");
     
-    uint32_t img_idx;
-    VkResult result = vkAcquireNextImageKHR(r->device, r->swapchain, UINT64_MAX,
-                                            r->image_available, VK_NULL_HANDLE, &img_idx);
+    vkDeviceWaitIdle(r->device);
+    destroy_buffer_object(r->device, &r->instance_buf);
     
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        die("Failed to acquire swapchain image");
-    }
-    
-    // Calculate instance counts
+    r->instance_capacity = new_cap;
+    create_and_upload_buffer(r, &r->instance_buf, NULL, r->instance_capacity * sizeof(InstanceData),
+                              VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
+}
+
+static uint32_t fill_instance_buffer(Renderer *r, World *world, const Player *player, float aspect,
+                                     bool highlight, IVec3 highlight_cell,
+                                     uint32_t *out_highlight_idx, uint32_t *out_crosshair_idx,
+                                     uint32_t *out_inventory_idx, uint32_t *out_selection_idx,
+                                     uint32_t *out_bg_idx, uint32_t *out_icons_start) {
     int block_count = world_total_render_blocks(world);
-    float aspect = (float)r->extent.height / (float)r->extent.width;
     uint32_t icon_count = player_inventory_icon_instances(player, aspect, NULL, 0);
+    uint32_t total = block_count + 5 + icon_count;
     
-    uint32_t total_instances = block_count + 5 + icon_count;
+    ensure_instance_capacity(r, total);
     
-    // Grow instance buffer if needed
-    if (total_instances > r->instance_capacity) {
-        uint32_t new_cap = r->instance_capacity;
-        while (new_cap < total_instances) new_cap *= 2;
-        if (new_cap > MAX_INSTANCE_CAPACITY) die("Instance buffer overflow");
-        
-        vkDeviceWaitIdle(r->device);
-        vkDestroyBuffer(r->device, r->instance_buffer, NULL);
-        vkFreeMemory(r->device, r->instance_memory, NULL);
-        
-        r->instance_capacity = new_cap;
-        create_buffer(r, r->instance_capacity * sizeof(InstanceData), VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-                     VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-                     &r->instance_buffer, &r->instance_memory);
-    }
-    
-    // Map and fill instance buffer
     InstanceData *instances;
-    VK_CHECK(vkMapMemory(r->device, r->instance_memory, 0, total_instances * sizeof(InstanceData), 0, (void **)&instances));
+    VK_CHECK(vkMapMemory(r->device, r->instance_buf.memory, 0, total * sizeof(InstanceData), 0, (void **)&instances));
     
     uint32_t idx = 0;
     
@@ -1188,62 +1127,212 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
         }
     }
     
-    uint32_t highlight_idx = idx++;
-    uint32_t crosshair_idx = idx++;
-    uint32_t inventory_idx = idx++;
-    uint32_t selection_idx = idx++;
-    uint32_t bg_idx = idx++;
-    uint32_t icons_start = idx;
+    *out_highlight_idx = idx++;
+    *out_crosshair_idx = idx++;
+    *out_inventory_idx = idx++;
+    *out_selection_idx = idx++;
+    *out_bg_idx = idx++;
+    *out_icons_start = idx;
     
-    instances[highlight_idx] = (InstanceData){
+    instances[*out_highlight_idx] = (InstanceData){
         highlight ? (float)highlight_cell.x : 0, highlight ? (float)highlight_cell.y : 0,
         highlight ? (float)highlight_cell.z : 0, HIGHLIGHT_TEXTURE_INDEX
     };
-    instances[crosshair_idx] = (InstanceData){0, 0, 0, CROSSHAIR_TEXTURE_INDEX};
-    instances[inventory_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX};
-    instances[selection_idx] = (InstanceData){0, 0, 0, INVENTORY_SELECTION_TEXTURE_INDEX};
-    instances[bg_idx] = (InstanceData){0, 0, 0, INVENTORY_BG_TEXTURE_INDEX};
+    instances[*out_crosshair_idx] = (InstanceData){0, 0, 0, CROSSHAIR_TEXTURE_INDEX};
+    instances[*out_inventory_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX};
+    instances[*out_selection_idx] = (InstanceData){0, 0, 0, INVENTORY_SELECTION_TEXTURE_INDEX};
+    instances[*out_bg_idx] = (InstanceData){0, 0, 0, INVENTORY_BG_TEXTURE_INDEX};
     
     if (icon_count > 0) {
-        player_inventory_icon_instances(player, aspect, &instances[icons_start], icon_count);
+        player_inventory_icon_instances(player, aspect, &instances[*out_icons_start], icon_count);
     }
     
-    vkUnmapMemory(r->device, r->instance_memory);
+    vkUnmapMemory(r->device, r->instance_buf.memory);
+    return icon_count;
+}
+
+static void update_ui_buffers(Renderer *r, const Player *player, float aspect) {
+    if (!player->inventory_open) return;
     
-    // Update inventory buffers
-    uint32_t sel_count = 0, bg_count = 0, count_count = 0;
-    
-    if (player->inventory_open) {
-        Vertex sel_verts[8];
-        player_inventory_selection_vertices((int)player->selected_slot, aspect, sel_verts, 8, &sel_count);
-        if (sel_count > 0) {
-            upload_buffer(r->device, r->inventory_selection_memory, sel_verts, sel_count * sizeof(Vertex));
-        }
-        
-        Vertex bg_verts[18];
-        player_inventory_background_vertices(aspect, bg_verts, 18, &bg_count);
-        if (bg_count > 0) {
-            upload_buffer(r->device, r->inventory_bg_memory, bg_verts, bg_count * sizeof(Vertex));
-        }
-        
-        Vertex count_verts[1500];
-        count_count = player_inventory_count_vertices(player, aspect, count_verts, 1500);
-        if (count_count > 0) {
-            upload_buffer(r->device, r->inventory_count_memory, count_verts, count_count * sizeof(Vertex));
-        }
+    Vertex sel_verts[8];
+    uint32_t sel_count = 0;
+    player_inventory_selection_vertices((int)player->selected_slot, aspect, sel_verts, 8, &sel_count);
+    if (sel_count > 0) {
+        upload_buffer_data(r->device, r->inventory_selection.memory, sel_verts, sel_count * sizeof(Vertex));
     }
     
-    // Build push constants
+    Vertex bg_verts[18];
+    uint32_t bg_count = 0;
+    player_inventory_background_vertices(aspect, bg_verts, 18, &bg_count);
+    if (bg_count > 0) {
+        upload_buffer_data(r->device, r->inventory_bg.memory, bg_verts, bg_count * sizeof(Vertex));
+    }
+    
+    Vertex count_verts[1500];
+    uint32_t count_count = player_inventory_count_vertices(player, aspect, count_verts, 1500);
+    if (count_count > 0) {
+        upload_buffer_data(r->device, r->inventory_count.memory, count_verts, count_count * sizeof(Vertex));
+    }
+}
+
+static void record_world_rendering(VkCommandBuffer cmd, Renderer *r, uint32_t img_idx,
+                                    int block_count, uint32_t highlight_idx, bool highlight,
+                                    const PushConstants *pc) {
+    VkBuffer bufs[2];
+    VkDeviceSize offsets[2] = {0, 0};
+    
+    if (block_count > 0) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_solid);
+        vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc), pc);
+        
+        bufs[0] = r->block_vertex.buffer;
+        bufs[1] = r->instance_buf.buffer;
+        vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+        vkCmdBindIndexBuffer(cmd, r->block_index.buffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
+                                &r->descriptor_sets_normal[img_idx], 0, NULL);
+        
+        vkCmdDrawIndexed(cmd, (sizeof(BLOCK_INDICES) / sizeof((BLOCK_INDICES)[0])), block_count, 0, 0, 0);
+    }
+    
+    if (highlight) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_wireframe);
+        vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc), pc);
+        
+        bufs[0] = r->edge_vertex.buffer;
+        bufs[1] = r->instance_buf.buffer;
+        vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+        vkCmdBindIndexBuffer(cmd, r->edge_index.buffer, 0, VK_INDEX_TYPE_UINT16);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
+                                &r->descriptor_sets_highlight[img_idx], 0, NULL);
+        
+        vkCmdDrawIndexed(cmd, (sizeof(EDGE_INDICES) / sizeof((EDGE_INDICES)[0])), 1, 0, 0, highlight_idx);
+    }
+}
+
+static void record_crosshair_rendering(VkCommandBuffer cmd, Renderer *r, uint32_t img_idx,
+                                       uint32_t crosshair_idx, const PushConstants *pc_overlay) {
+    VkBuffer bufs[2];
+    VkDeviceSize offsets[2] = {0, 0};
+    
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
+    vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc_overlay), pc_overlay);
+    
+    bufs[0] = r->crosshair.buffer;
+    bufs[1] = r->instance_buf.buffer;
+    vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
+                            &r->descriptor_sets_highlight[img_idx], 0, NULL);
+    
+    vkCmdDraw(cmd, 4, 1, 0, crosshair_idx);
+}
+
+static void record_inventory_rendering(VkCommandBuffer cmd, Renderer *r, uint32_t img_idx,
+                                        const Player *player, uint32_t bg_idx, uint32_t inventory_idx,
+                                        uint32_t selection_idx, uint32_t icons_start, uint32_t icon_count,
+                                        const PushConstants *pc_overlay) {
+    VkBuffer bufs[2];
+    VkDeviceSize offsets[2] = {0, 0};
+    
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_overlay);
+    vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc_overlay), pc_overlay);
+    
+    bufs[0] = r->inventory_bg.buffer;
+    bufs[1] = r->instance_buf.buffer;
+    vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
+                            &r->descriptor_sets_highlight[img_idx], 0, NULL);
+    vkCmdDraw(cmd, 18, 1, 0, bg_idx);
+    
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
+    vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc_overlay), pc_overlay);
+    
+    bufs[0] = r->inventory_grid.buffer;
+    vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+    vkCmdDraw(cmd, 32, 1, 0, inventory_idx);
+    
+    bufs[0] = r->crafting_grid.buffer;
+    vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+    vkCmdDraw(cmd, 32, 1, 0, inventory_idx);
+    
+    bufs[0] = r->crafting_arrow.buffer;
+    vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+    vkCmdDraw(cmd, 16, 1, 0, inventory_idx);
+    
+    bufs[0] = r->crafting_result.buffer;
+    vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+    vkCmdDraw(cmd, 16, 1, 0, inventory_idx);
+    
+    bufs[0] = r->inventory_selection.buffer;
+    vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+    vkCmdDraw(cmd, 8, 1, 0, selection_idx);
+    
+    if (icon_count > 0) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_overlay);
+        vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc_overlay), pc_overlay);
+        
+        bufs[0] = r->inventory_icon.buffer;
+        bufs[1] = r->instance_buf.buffer;
+        vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
+                                &r->descriptor_sets_normal[img_idx], 0, NULL);
+        vkCmdDraw(cmd, 6, icon_count, 0, icons_start);
+    }
+    
+    Vertex count_verts[1500];
+    uint32_t count_count = player_inventory_count_vertices(player, (float)r->extent.height / (float)r->extent.width,
+                                                           count_verts, 1500);
+    if (count_count > 0) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
+        vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc_overlay), pc_overlay);
+        
+        bufs[0] = r->inventory_count.buffer;
+        bufs[1] = r->instance_buf.buffer;
+        vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
+                                &r->descriptor_sets_highlight[img_idx], 0, NULL);
+        vkCmdDraw(cmd, count_count, 1, 0, inventory_idx);
+    }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Frame Rendering                                                            */
+/* -------------------------------------------------------------------------- */
+
+void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera *camera,
+                         bool highlight, IVec3 highlight_cell) {
+    if (!r) return;
+    
+    VK_CHECK(vkWaitForFences(r->device, 1, &r->in_flight, VK_TRUE, UINT64_MAX));
+    VK_CHECK(vkResetFences(r->device, 1, &r->in_flight));
+    
+    uint32_t img_idx;
+    VkResult result = vkAcquireNextImageKHR(r->device, r->swapchain, UINT64_MAX,
+                                             r->image_available, VK_NULL_HANDLE, &img_idx);
+    
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        die("Failed to acquire swapchain image");
+    }
+    
+    float aspect = (float)r->extent.height / (float)r->extent.width;
+    
+    uint32_t highlight_idx, crosshair_idx, inventory_idx, selection_idx, bg_idx, icons_start;
+    int block_count = world_total_render_blocks(world);
+    uint32_t icon_count = fill_instance_buffer(r, world, player, aspect, highlight, highlight_cell,
+                                                &highlight_idx, &crosshair_idx, &inventory_idx,
+                                                &selection_idx, &bg_idx, &icons_start);
+    
+    update_ui_buffers(r, player, aspect);
+    
     PushConstants pc = {
         .view = camera_view_matrix(camera),
         .proj = mat4_perspective(55.0f * M_PI / 180.0f,
-                                (float)r->extent.width / (float)r->extent.height, 0.1f, 200.0f)
+                                 (float)r->extent.width / (float)r->extent.height, 0.1f, 200.0f)
     };
     
     PushConstants pc_overlay = {.view = mat4_identity(), .proj = mat4_identity()};
     pc_overlay.proj.m[5] = -1.0f;
     
-    // Record command buffer
     VkCommandBuffer cmd = r->command_buffers[img_idx];
     VK_CHECK(vkResetCommandBuffer(cmd, 0));
     
@@ -1266,164 +1355,18 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
     
     vkCmdBeginRenderPass(cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
     
-    VkBuffer bufs[2];
-    VkDeviceSize offsets[2] = {0, 0};
+    record_world_rendering(cmd, r, img_idx, block_count, highlight_idx, highlight, &pc);
     
-    // Draw blocks
-    if (block_count > 0) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_solid);
-        vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
-        
-        bufs[0] = r->block_vertex_buffer;
-        bufs[1] = r->instance_buffer;
-        vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
-        vkCmdBindIndexBuffer(cmd, r->block_index_buffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
-                               &r->descriptor_sets_normal[img_idx], 0, NULL);
-        
-        vkCmdDrawIndexed(cmd, ARRAY_LENGTH(BLOCK_INDICES), block_count, 0, 0, 0);
-    }
-    
-    // Draw highlight
-    if (highlight) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_wireframe);
-        vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc), &pc);
-        
-        bufs[0] = r->edge_vertex_buffer;
-        bufs[1] = r->instance_buffer;
-        vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
-        vkCmdBindIndexBuffer(cmd, r->edge_index_buffer, 0, VK_INDEX_TYPE_UINT16);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
-                               &r->descriptor_sets_highlight[img_idx], 0, NULL);
-        
-        vkCmdDrawIndexed(cmd, ARRAY_LENGTH(EDGE_INDICES), 1, 0, 0, highlight_idx);
-    }
-    
-    // Draw crosshair
     if (!player->inventory_open) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
-        vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
-        
-        bufs[0] = r->crosshair_buffer;
-        bufs[1] = r->instance_buffer;
-        vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
-                               &r->descriptor_sets_highlight[img_idx], 0, NULL);
-        
-        vkCmdDraw(cmd, 4, 1, 0, crosshair_idx);
-    }
-    
-    // Draw inventory UI
-    if (player->inventory_open) {
-        if (bg_count > 0) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_overlay);
-            vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
-            
-            bufs[0] = r->inventory_bg_buffer;
-            bufs[1] = r->instance_buffer;
-            vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
-                                   &r->descriptor_sets_highlight[img_idx], 0, NULL);
-            
-            vkCmdDraw(cmd, bg_count, 1, 0, bg_idx);
-        }
-        
-        if (r->inventory_grid_count > 0) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
-            vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
-            
-            bufs[0] = r->inventory_grid_buffer;
-            bufs[1] = r->instance_buffer;
-            vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
-                                   &r->descriptor_sets_highlight[img_idx], 0, NULL);
-            
-            vkCmdDraw(cmd, r->inventory_grid_count, 1, 0, inventory_idx);
-        }
-
-        if (r->crafting_grid_count > 0) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
-            vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
-
-            bufs[0] = r->crafting_grid_buffer;
-            bufs[1] = r->instance_buffer;
-            vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
-                                   &r->descriptor_sets_highlight[img_idx], 0, NULL);
-
-            vkCmdDraw(cmd, r->crafting_grid_count, 1, 0, inventory_idx);
-        }
-
-        if (r->crafting_arrow_count > 0) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
-            vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
-
-            bufs[0] = r->crafting_arrow_buffer;
-            bufs[1] = r->instance_buffer;
-            vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
-                                   &r->descriptor_sets_highlight[img_idx], 0, NULL);
-
-            vkCmdDraw(cmd, r->crafting_arrow_count, 1, 0, inventory_idx);
-        }
-
-        if (r->crafting_result_count > 0) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
-            vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
-
-            bufs[0] = r->crafting_result_buffer;
-            bufs[1] = r->instance_buffer;
-            vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
-                                   &r->descriptor_sets_highlight[img_idx], 0, NULL);
-
-            vkCmdDraw(cmd, r->crafting_result_count, 1, 0, inventory_idx);
-        }
-        
-        if (sel_count > 0) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
-            vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
-            
-            bufs[0] = r->inventory_selection_buffer;
-            bufs[1] = r->instance_buffer;
-            vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
-                                   &r->descriptor_sets_highlight[img_idx], 0, NULL);
-            
-            vkCmdDraw(cmd, sel_count, 1, 0, selection_idx);
-        }
-        
-        if (icon_count > 0) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_overlay);
-            vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
-            
-            bufs[0] = r->inventory_icon_buffer;
-            bufs[1] = r->instance_buffer;
-            vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
-                                   &r->descriptor_sets_normal[img_idx], 0, NULL);
-            
-            vkCmdDraw(cmd, r->inventory_icon_count, icon_count, 0, icons_start);
-        }
-        
-        if (count_count > 0) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_crosshair);
-            vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(pc_overlay), &pc_overlay);
-            
-            bufs[0] = r->inventory_count_buffer;
-            bufs[1] = r->instance_buffer;
-            vkCmdBindVertexBuffers(cmd, 0, 2, bufs, offsets);
-            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
-                                   &r->descriptor_sets_highlight[img_idx], 0, NULL);
-            
-            vkCmdDraw(cmd, count_count, 1, 0, inventory_idx);
-        }
+        record_crosshair_rendering(cmd, r, img_idx, crosshair_idx, &pc_overlay);
+    } else {
+        record_inventory_rendering(cmd, r, img_idx, player, bg_idx, inventory_idx,
+                                    selection_idx, icons_start, icon_count, &pc_overlay);
     }
     
     vkCmdEndRenderPass(cmd);
     VK_CHECK(vkEndCommandBuffer(cmd));
     
-    // Submit
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     
     VkSubmitInfo submit_info = {
@@ -1436,7 +1379,6 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
     
     VK_CHECK(vkQueueSubmit(r->graphics_queue, 1, &submit_info, r->in_flight));
     
-    // Present
     VkPresentInfoKHR present_info = {
         .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
         .waitSemaphoreCount = 1, .pWaitSemaphores = &r->render_finished,
