@@ -28,22 +28,10 @@ typedef enum {
 typedef struct {
     IOEventType type;
     union {
-        struct {
-            uint32_t width;
-            uint32_t height;
-        } resize;
-        struct {
-            uint32_t key;
-        } key;
-        struct {
-            int x;
-            int y;
-        } mouse_move;
-        struct {
-            uint8_t button;
-            int x;
-            int y;
-        } mouse_button;
+        struct { uint32_t width, height; } resize;
+        struct { uint32_t key; } key;
+        struct { int x, y; } mouse_move;
+        struct { uint8_t button; int x, y; } mouse_button;
     } data;
 } IOEvent;
 

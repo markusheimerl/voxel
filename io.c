@@ -2,19 +2,25 @@
 
 #include <stdio.h>
 #include <stdlib.h>
-
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 
+/* -------------------------------------------------------------------------- */
+/* IOContext Structure                                                        */
+/* -------------------------------------------------------------------------- */
+
 typedef struct IOContext {
     Display *display;
-    int screen;
     Window window;
     Atom wm_delete_window;
     Cursor invisible_cursor;
 } IOContext;
+
+/* -------------------------------------------------------------------------- */
+/* Error Handling & Utilities                                                 */
+/* -------------------------------------------------------------------------- */
 
 static void io_die(const char *message) {
     fprintf(stderr, "Error: %s\n", message);
@@ -27,62 +33,93 @@ static uint32_t io_keysym_to_key(KeySym sym) {
     return IO_KEY_UNKNOWN;
 }
 
-IOContext *io_create(const char *title) {
-    IOContext *io = calloc(1, sizeof(*io));
-    if (!io) io_die("Failed to allocate IOContext");
+/* -------------------------------------------------------------------------- */
+/* Window & Cursor Creation Helpers                                           */
+/* -------------------------------------------------------------------------- */
 
-    io->display = XOpenDisplay(NULL);
-    if (!io->display) io_die("Failed to open X11 display");
+static Window create_window(Display *display, int screen) {
+    Window root = RootWindow(display, screen);
+    return XCreateSimpleWindow(display, root, 0, 0, 800, 600, 1,
+                               BlackPixel(display, screen),
+                               WhitePixel(display, screen));
+}
 
-    io->screen = DefaultScreen(io->display);
-    Window root = RootWindow(io->display, io->screen);
-
-    io->window = XCreateSimpleWindow(io->display, root,
-                                     0, 0,
-                                     800, 600,
-                                     1,
-                                     BlackPixel(io->display, io->screen),
-                                     WhitePixel(io->display, io->screen));
-
-    if (title) XStoreName(io->display, io->window, title);
-
-    XSelectInput(io->display, io->window,
-                 ExposureMask | KeyPressMask | KeyReleaseMask |
-                 PointerMotionMask | StructureNotifyMask | ButtonPressMask);
-
-    io->wm_delete_window = XInternAtom(io->display, "WM_DELETE_WINDOW", False);
-    XSetWMProtocols(io->display, io->window, &io->wm_delete_window, 1);
-    XMapWindow(io->display, io->window);
-
-    /* Wait for MapNotify before sending maximize request */
+static void maximize_window(Display *display, Window window) {
+    /* Wait for MapNotify */
     XEvent xev;
     while (1) {
-        XNextEvent(io->display, &xev);
-        if (xev.type == MapNotify && xev.xmap.window == io->window) break;
+        XNextEvent(display, &xev);
+        if (xev.type == MapNotify && xev.xmap.window == window) break;
     }
 
-    Atom wm_state = XInternAtom(io->display, "_NET_WM_STATE", False);
-    Atom max_vert = XInternAtom(io->display, "_NET_WM_STATE_MAXIMIZED_VERT", False);
-    Atom max_horz = XInternAtom(io->display, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+    /* Send maximize request */
+    Window root = DefaultRootWindow(display);
+    Atom wm_state = XInternAtom(display, "_NET_WM_STATE", False);
+    Atom max_vert = XInternAtom(display, "_NET_WM_STATE_MAXIMIZED_VERT", False);
+    Atom max_horz = XInternAtom(display, "_NET_WM_STATE_MAXIMIZED_HORZ", False);
+
     XEvent ev = {0};
     ev.type = ClientMessage;
-    ev.xclient.window = io->window;
+    ev.xclient.window = window;
     ev.xclient.message_type = wm_state;
     ev.xclient.format = 32;
     ev.xclient.data.l[0] = 1;
     ev.xclient.data.l[1] = (long)max_horz;
     ev.xclient.data.l[2] = (long)max_vert;
     ev.xclient.data.l[3] = 1;
-    XSendEvent(io->display, root, False, SubstructureRedirectMask | SubstructureNotifyMask, &ev);
-    XFlush(io->display);
 
-    char empty_cursor_data[8] = {0};
-    Pixmap blank = XCreateBitmapFromData(io->display, io->window, empty_cursor_data, 8, 8);
-    Colormap colormap = DefaultColormap(io->display, io->screen);
-    XColor black, dummy;
-    XAllocNamedColor(io->display, colormap, "black", &black, &dummy);
-    io->invisible_cursor = XCreatePixmapCursor(io->display, blank, blank, &black, &black, 0, 0);
-    XFreePixmap(io->display, blank);
+    XSendEvent(display, root, False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+    XFlush(display);
+}
+
+static Cursor create_invisible_cursor(Display *display, Window window, int screen) {
+    char empty_data[8] = {0};
+    Pixmap blank = XCreateBitmapFromData(display, window, empty_data, 8, 8);
+    
+    XColor black;
+    XAllocNamedColor(display, DefaultColormap(display, screen),
+                     "black", &black, &black);
+    
+    Cursor cursor = XCreatePixmapCursor(display, blank, blank,
+                                        &black, &black, 0, 0);
+    XFreePixmap(display, blank);
+    return cursor;
+}
+
+/* -------------------------------------------------------------------------- */
+/* IOContext Creation & Destruction                                           */
+/* -------------------------------------------------------------------------- */
+
+IOContext *io_create(const char *title) {
+    IOContext *io = calloc(1, sizeof(*io));
+    if (!io) io_die("Failed to allocate IOContext");
+
+    /* Open display */
+    io->display = XOpenDisplay(NULL);
+    if (!io->display) io_die("Failed to open X11 display");
+
+    int screen = DefaultScreen(io->display);
+
+    /* Create window */
+    io->window = create_window(io->display, screen);
+    if (title) XStoreName(io->display, io->window, title);
+
+    /* Select input events */
+    XSelectInput(io->display, io->window,
+                 ExposureMask | KeyPressMask | KeyReleaseMask |
+                 PointerMotionMask | StructureNotifyMask | ButtonPressMask);
+
+    /* Setup WM protocols */
+    io->wm_delete_window = XInternAtom(io->display, "WM_DELETE_WINDOW", False);
+    XSetWMProtocols(io->display, io->window, &io->wm_delete_window, 1);
+
+    /* Map and maximize window */
+    XMapWindow(io->display, io->window);
+    maximize_window(io->display, io->window);
+
+    /* Create invisible cursor */
+    io->invisible_cursor = create_invisible_cursor(io->display, io->window, screen);
 
     return io;
 }
@@ -99,6 +136,10 @@ void io_destroy(IOContext *io) {
     free(io);
 }
 
+/* -------------------------------------------------------------------------- */
+/* Accessors                                                                  */
+/* -------------------------------------------------------------------------- */
+
 void *io_get_display(IOContext *io) {
     return io ? (void *)io->display : NULL;
 }
@@ -106,6 +147,10 @@ void *io_get_display(IOContext *io) {
 unsigned long io_get_window(IOContext *io) {
     return io ? (unsigned long)io->window : 0UL;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Event Polling                                                              */
+/* -------------------------------------------------------------------------- */
 
 bool io_poll_event(IOContext *io, IOEvent *event) {
     if (!io || !event) return false;
@@ -151,13 +196,14 @@ bool io_poll_event(IOContext *io, IOEvent *event) {
         event->data.mouse_button.x = xevent.xbutton.x;
         event->data.mouse_button.y = xevent.xbutton.y;
         break;
-
-    default:
-        break;
     }
 
     return true;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Window Control                                                             */
+/* -------------------------------------------------------------------------- */
 
 void io_set_window_title(IOContext *io, const char *title) {
     if (!io || !title) return;
@@ -173,6 +219,10 @@ void io_get_window_size(IOContext *io, uint32_t *out_width, uint32_t *out_height
     if (out_width) *out_width = (uint32_t)attrs.width;
     if (out_height) *out_height = (uint32_t)attrs.height;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Mouse Control                                                              */
+/* -------------------------------------------------------------------------- */
 
 void io_set_mouse_capture(IOContext *io, bool capture) {
     if (!io) return;
