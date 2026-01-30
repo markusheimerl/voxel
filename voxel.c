@@ -243,6 +243,12 @@ int main(void) {
     
     Player player;
     player_init(&player, world.spawn_position);
+
+    /* Load saved player state if available */
+    if (!world_save_load_player(&save, &player)) {
+        /* No saved player data, use spawn position */
+        player.position = world.spawn_position;
+    }
     
     Camera camera;
     camera_init(&camera);
@@ -283,6 +289,7 @@ int main(void) {
                                        left_click, right_click, interaction_enabled);
         
         if (time_state_should_autosave(&time_state)) {
+            world_save_store_player(&save, &player);
             world_save_flush(&save);
         }
         
@@ -290,6 +297,7 @@ int main(void) {
                           ray_hit.hit, ray_hit.cell);
     }
     
+    world_save_store_player(&save, &player);
     world_destroy(&world);
     world_save_destroy(&save);
     renderer_destroy(renderer);

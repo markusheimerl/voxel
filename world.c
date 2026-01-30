@@ -1,4 +1,5 @@
 #include "world.h"
+#include "player.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -126,6 +127,21 @@ bool world_save_load(WorldSave *save) {
         fclose(f);
         return false;
     }
+
+    /* Load player data */
+    save->has_player_data = false;
+    if (fread(&save->player_position.x, sizeof(float), 1, f) == 1 &&
+        fread(&save->player_position.y, sizeof(float), 1, f) == 1 &&
+        fread(&save->player_position.z, sizeof(float), 1, f) == 1 &&
+        fread(&save->player_health, sizeof(uint8_t), 1, f) == 1 &&
+        fread(&save->player_selected_slot, sizeof(uint8_t), 1, f) == 1 &&
+        fread(save->player_inventory, sizeof(uint8_t), 27, f) == 27 &&
+        fread(save->player_inventory_counts, sizeof(uint8_t), 27, f) == 27) {
+        save->has_player_data = true;
+    } else {
+        fclose(f);
+        return false;
+    }
     
     /* Free existing records */
     for (int i = 0; i < save->count; ++i) {
@@ -197,6 +213,19 @@ void world_save_flush(WorldSave *save) {
         remove(tmp_path);
         die("Failed to write save header");
     }
+
+    /* Write player data */
+    if (fwrite(&save->player_position.x, sizeof(float), 1, f) != 1 ||
+        fwrite(&save->player_position.y, sizeof(float), 1, f) != 1 ||
+        fwrite(&save->player_position.z, sizeof(float), 1, f) != 1 ||
+        fwrite(&save->player_health, sizeof(uint8_t), 1, f) != 1 ||
+        fwrite(&save->player_selected_slot, sizeof(uint8_t), 1, f) != 1 ||
+        fwrite(save->player_inventory, sizeof(uint8_t), 27, f) != 27 ||
+        fwrite(save->player_inventory_counts, sizeof(uint8_t), 27, f) != 27) {
+        fclose(f);
+        remove(tmp_path);
+        die("Failed to write player data");
+    }
     
     size_t voxel_size = chunk_voxel_count();
     for (int i = 0; i < save->count; ++i) {
@@ -253,6 +282,37 @@ static bool save_load_chunk(const WorldSave *save, int cx, int cz, uint8_t *out_
     if (idx < 0) return false;
     
     memcpy(out_voxels, save->records[idx].voxels, chunk_voxel_count());
+    return true;
+}
+
+void world_save_store_player(WorldSave *save, const Player *player) {
+    if (!save || !player) return;
+
+    save->player_position = player->position;
+    save->player_health = player->health;
+    save->player_selected_slot = player->selected_slot;
+
+    for (int i = 0; i < 27; ++i) {
+        save->player_inventory[i] = player->inventory[i];
+        save->player_inventory_counts[i] = player->inventory_counts[i];
+    }
+
+    save->has_player_data = true;
+    save->dirty = true;
+}
+
+bool world_save_load_player(const WorldSave *save, Player *player) {
+    if (!save || !player || !save->has_player_data) return false;
+
+    player->position = save->player_position;
+    player->health = save->player_health;
+    player->selected_slot = save->player_selected_slot;
+
+    for (int i = 0; i < 27; ++i) {
+        player->inventory[i] = save->player_inventory[i];
+        player->inventory_counts[i] = save->player_inventory_counts[i];
+    }
+
     return true;
 }
 

@@ -73,12 +73,22 @@ typedef struct {
     uint8_t *voxels;
 } ChunkRecord;
 
+typedef struct Player Player;
+
 typedef struct {
     ChunkRecord *records;
     int count;
     int capacity;
     bool dirty;
     char path[256];
+
+    /* Player save data */
+    bool has_player_data;
+    Vec3 player_position;
+    uint8_t player_health;
+    uint8_t player_selected_slot;
+    uint8_t player_inventory[27];
+    uint8_t player_inventory_counts[27];
 } WorldSave;
 
 typedef struct Chunk {
@@ -121,6 +131,13 @@ void world_save_init(WorldSave *save, const char *path);
 bool world_save_load(WorldSave *save);
 void world_save_flush(WorldSave *save);
 void world_save_destroy(WorldSave *save);
+
+/* -------------------------------------------------------------------------- */
+/* Player Save API                                                            */
+/* -------------------------------------------------------------------------- */
+
+void world_save_store_player(WorldSave *save, const Player *player);
+bool world_save_load_player(const WorldSave *save, Player *player);
 
 /* -------------------------------------------------------------------------- */
 /* World API                                                                  */
