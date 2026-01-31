@@ -30,6 +30,10 @@ typedef struct Entity {
             float animation_time;
             float state_timer;
             bool is_walking;
+            bool is_turning;
+            float turn_remaining;
+            float turn_speed;
+            int turn_chain_remaining;
         } zombie;
     } data;
 } Entity;
