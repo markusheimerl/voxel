@@ -69,6 +69,51 @@ static bool zombie_find_ground(World *world, Vec3 pos, float *out_ground_y) {
     return false;
 }
 
+static bool zombie_find_ground_within(World *world, Vec3 pos, int max_drop_blocks, float *out_ground_y) {
+    float ground_y = -INFINITY;
+    const float offsets[2] = {-ZOMBIE_HALF_WIDTH, ZOMBIE_HALF_WIDTH};
+
+    for (int drop = 0; drop <= max_drop_blocks; ++drop) {
+        float sample_y = pos.y - 0.51f - (float)drop;
+
+        for (int xi = 0; xi < 2; ++xi) {
+            for (int zi = 0; zi < 2; ++zi) {
+                Vec3 test = vec3(pos.x + offsets[xi], sample_y, pos.z + offsets[zi]);
+                IVec3 cell = world_to_cell(test);
+
+                uint8_t type;
+                if (!world_get_block_type(world, cell, &type)) continue;
+                if (type == BLOCK_WATER) continue;
+
+                float top = (float)cell.y + 0.5f;
+                if (top > ground_y) ground_y = top;
+            }
+        }
+    }
+
+    if (ground_y > -INFINITY) {
+        *out_ground_y = ground_y;
+        return true;
+    }
+    return false;
+}
+
+static bool zombie_would_fall_too_far(World *world, const Entity *entity, float lookahead) {
+    float current_ground_y;
+    if (!zombie_find_ground(world, entity->position, &current_ground_y)) return false;
+
+    Vec3 ahead = entity->position;
+    ahead.x += entity->data.zombie.walk_direction.x * lookahead;
+    ahead.z += entity->data.zombie.walk_direction.z * lookahead;
+
+    float ahead_ground_y;
+    if (!zombie_find_ground_within(world, ahead, 1, &ahead_ground_y)) {
+        return true;
+    }
+
+    return ahead_ground_y < current_ground_y - 1.0f;
+}
+
 static void zombie_resolve_horizontal_collision(World *world, Vec3 *pos) {
     for (int iter = 0; iter < 4; ++iter) {
         AABB zombie_aabb;
@@ -123,7 +168,7 @@ static void zombie_resolve_horizontal_collision(World *world, Vec3 *pos) {
     }
 }
 
-static void zombie_update_ai(Entity *entity, float delta_time) {
+static void zombie_update_ai(Entity *entity, World *world, float delta_time) {
     const float WALK_TIME_MIN = 1.2f, WALK_TIME_MAX = 3.0f;
     const float IDLE_TIME_MIN = 0.8f, IDLE_TIME_MAX = 2.0f;
     const float TURN_DEG_MIN = 30.0f, TURN_DEG_MAX = 180.0f;
@@ -134,9 +179,19 @@ static void zombie_update_ai(Entity *entity, float delta_time) {
 
     if (entity->data.zombie.is_walking) {
         entity->data.zombie.state_timer -= delta_time;
-        entity->position.x += entity->data.zombie.walk_direction.x * ZOMBIE_WALK_SPEED * delta_time;
-        entity->position.z += entity->data.zombie.walk_direction.z * ZOMBIE_WALK_SPEED * delta_time;
-        entity->data.zombie.animation_time += delta_time;
+        float step = ZOMBIE_WALK_SPEED * delta_time;
+        float lookahead = fmaxf(step, ZOMBIE_HALF_WIDTH + 0.05f);
+
+        if (world && zombie_would_fall_too_far(world, entity, lookahead)) {
+            entity->data.zombie.is_walking = false;
+            entity->data.zombie.is_turning = false;
+            entity->data.zombie.turn_chain_remaining = 0;
+            entity->data.zombie.state_timer = 0.0f;
+        } else {
+            entity->position.x += entity->data.zombie.walk_direction.x * step;
+            entity->position.z += entity->data.zombie.walk_direction.z * step;
+            entity->data.zombie.animation_time += delta_time;
+        }
 
         if (entity->data.zombie.state_timer <= 0.0f) {
             entity->data.zombie.is_walking = false;
@@ -268,12 +323,12 @@ Entity entity_create_zombie(Vec3 position) {
     return entity;
 }
 
-void entity_update(Entity *entity, float delta_time) {
+void entity_update(Entity *entity, World *world, float delta_time) {
     if (!entity) return;
 
     switch (entity->type) {
     case ENTITY_ZOMBIE:
-        zombie_update_ai(entity, delta_time);
+        zombie_update_ai(entity, world, delta_time);
         break;
     }
 }

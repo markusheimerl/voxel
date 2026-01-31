@@ -52,7 +52,7 @@ enum { ENTITY_INSTANCE_STRIDE_BYTES = sizeof(float) * 9 };
 Entity entity_create_zombie(Vec3 position);
 
 /* Update entity (AI, animation) */
-void entity_update(Entity *entity, float delta_time);
+void entity_update(Entity *entity, World *world, float delta_time);
 
 /* Apply physics (gravity, collision) - called by World */
 void entity_apply_physics(Entity *entity, World *world, float delta_time);

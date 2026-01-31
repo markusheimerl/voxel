@@ -674,7 +674,7 @@ void world_update_entities(World *world, float delta_time) {
     if (!world) return;
 
     for (int i = 0; i < world->entity_count; ++i) {
-        entity_update(&world->entities[i], delta_time);
+        entity_update(&world->entities[i], world, delta_time);
         entity_apply_physics(&world->entities[i], world, delta_time);
     }
 }
