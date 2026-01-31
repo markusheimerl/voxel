@@ -1105,7 +1105,9 @@ uint32_t player_inventory_icon_instances(const Player *player, float aspect,
             float center_x = layout.inv_left + layout.cell_w * (0.5f + col);
             float center_y = layout.inv_top - layout.cell_h * (0.5f + row);
             out_instances[icon_index] = (InstanceData){
-                center_x, center_y, 0.0f, (uint32_t)player->inventory[slot]
+                center_x, center_y, 0.0f, (uint32_t)player->inventory[slot],
+                1.0f, 1.0f, 1.0f,
+                0.0f, 0.0f
             };
         }
         icon_index++;
@@ -1122,7 +1124,9 @@ uint32_t player_inventory_icon_instances(const Player *player, float aspect,
             float center_x = layout.craft_left + craft_h_step * (0.5f + col);
             float center_y = layout.craft_top - craft_v_step * (0.5f + row);
             out_instances[icon_index] = (InstanceData){
-                center_x, center_y, 0.0f, (uint32_t)player->crafting_grid[slot]
+                center_x, center_y, 0.0f, (uint32_t)player->crafting_grid[slot],
+                1.0f, 1.0f, 1.0f,
+                0.0f, 0.0f
             };
         }
         icon_index++;
@@ -1135,7 +1139,9 @@ uint32_t player_inventory_icon_instances(const Player *player, float aspect,
                 float center_x = (layout.result_left + layout.result_right) * 0.5f;
                 float center_y = (layout.result_bottom + layout.result_top) * 0.5f;
                 out_instances[icon_index] = (InstanceData){
-                    center_x, center_y, 0.0f, (uint32_t)craft_result.result_type
+                    center_x, center_y, 0.0f, (uint32_t)craft_result.result_type,
+                    1.0f, 1.0f, 1.0f,
+                    0.0f, 0.0f
                 };
             }
             icon_index++;
@@ -1148,7 +1154,9 @@ uint32_t player_inventory_icon_instances(const Player *player, float aspect,
                 player->inventory_mouse_ndc_x,
                 player->inventory_mouse_ndc_y,
                 0.0f,
-                (uint32_t)player->inventory_held_type
+                (uint32_t)player->inventory_held_type,
+                1.0f, 1.0f, 1.0f,
+                0.0f, 0.0f
             };
         }
         icon_index++;

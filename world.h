@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "math.h"
+#include "entity.h"
 
 /* -------------------------------------------------------------------------- */
 /* Block Types                                                                */
@@ -112,6 +113,10 @@ typedef struct World {
     bool spawn_set;
     
     WorldSave *save;
+
+    Entity *entities;
+    int entity_count;
+    int entity_capacity;
 } World;
 
 /* -------------------------------------------------------------------------- */
@@ -153,5 +158,15 @@ bool world_add_block(World *world, IVec3 pos, uint8_t type);
 bool world_remove_block(World *world, IVec3 pos);
 
 int world_total_render_blocks(World *world);
+
+/* -------------------------------------------------------------------------- */
+/* Entity Management                                                          */
+/* -------------------------------------------------------------------------- */
+
+bool world_add_entity(World *world, Entity entity);
+void world_update_entities(World *world, float delta_time);
+uint32_t world_get_entity_render_block_count(const World *world);
+uint32_t world_write_entity_render_blocks(const World *world, void *out_data,
+                                          uint32_t offset, uint32_t max);
 
 #endif /* WORLD_H */

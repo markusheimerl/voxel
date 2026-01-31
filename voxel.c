@@ -10,6 +10,7 @@
 #include "io.h"
 #include "camera.h"
 #include "world.h"
+#include "entity.h"
 #include "renderer.h"
 #include "player.h"
 
@@ -240,6 +241,9 @@ int main(void) {
     if (!world.spawn_set) {
         world.spawn_position = vec3(0.0f, 4.5f, 0.0f);
     }
+
+    Entity zombie = entity_create_zombie(vec3_add(world.spawn_position, vec3(1.0f, 0.0f, 1.0f)));
+    world_add_entity(&world, zombie);
     
     Player player;
     player_init(&player, world.spawn_position);
@@ -282,6 +286,8 @@ int main(void) {
         
         bool respawned = player_apply_physics(&player, &world, delta_time, move_delta, wants_jump);
         camera_follow_player(&camera, &player);
+
+        world_update_entities(&world, delta_time);
 
         if (respawned) {
             camera_reset_view(&camera);

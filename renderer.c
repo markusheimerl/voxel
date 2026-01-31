@@ -477,17 +477,20 @@ static VkPipeline create_graphics_pipeline(Renderer *r, VkShaderModule vert, VkS
         {.binding = 1, .stride = sizeof(InstanceData), .inputRate = VK_VERTEX_INPUT_RATE_INSTANCE}
     };
     
-    VkVertexInputAttributeDescription attrs[4] = {
+    VkVertexInputAttributeDescription attrs[7] = {
         {.binding = 0, .location = 0, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(Vertex, pos)},
         {.binding = 0, .location = 1, .format = VK_FORMAT_R32G32_SFLOAT, .offset = offsetof(Vertex, uv)},
         {.binding = 1, .location = 2, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(InstanceData, x)},
-        {.binding = 1, .location = 3, .format = VK_FORMAT_R32_UINT, .offset = offsetof(InstanceData, type)}
+        {.binding = 1, .location = 3, .format = VK_FORMAT_R32_UINT, .offset = offsetof(InstanceData, type)},
+        {.binding = 1, .location = 4, .format = VK_FORMAT_R32G32B32_SFLOAT, .offset = offsetof(InstanceData, sx)},
+        {.binding = 1, .location = 5, .format = VK_FORMAT_R32_SFLOAT, .offset = offsetof(InstanceData, rot_x)},
+        {.binding = 1, .location = 6, .format = VK_FORMAT_R32_SFLOAT, .offset = offsetof(InstanceData, rot_y)}
     };
     
     VkPipelineVertexInputStateCreateInfo vertex_input = {
         .sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
         .vertexBindingDescriptionCount = 2, .pVertexBindingDescriptions = bindings,
-        .vertexAttributeDescriptionCount = 4, .pVertexAttributeDescriptions = attrs
+        .vertexAttributeDescriptionCount = 7, .pVertexAttributeDescriptions = attrs
     };
     
     VkPipelineInputAssemblyStateCreateInfo input_assembly = {
@@ -1124,15 +1127,15 @@ static void ensure_instance_capacity(Renderer *r, uint32_t required) {
 }
 
 static uint32_t fill_instance_buffer(Renderer *r, World *world, const Player *player, float aspect,
+                                     int block_count, uint32_t entity_count,
                                      bool highlight, IVec3 highlight_cell,
                                      uint32_t *out_highlight_idx, uint32_t *out_crosshair_idx,
                                      uint32_t *out_inventory_idx, uint32_t *out_selection_idx,
                                      uint32_t *out_bg_idx, uint32_t *out_health_bg_idx,
                                      uint32_t *out_health_border_idx,
                                      uint32_t *out_icons_start) {
-    int block_count = world_total_render_blocks(world);
     uint32_t icon_count = player_inventory_icon_instances(player, aspect, NULL, 0);
-    uint32_t total = block_count + 7 + icon_count;
+    uint32_t total = (uint32_t)block_count + entity_count + 7 + icon_count;
     
     ensure_instance_capacity(r, total);
     
@@ -1145,8 +1148,18 @@ static uint32_t fill_instance_buffer(Renderer *r, World *world, const Player *pl
         Chunk *chunk = world->chunks[i];
         for (int j = 0; j < chunk->block_count; j++) {
             Block b = chunk->blocks[j];
-            instances[idx++] = (InstanceData){b.pos.x, b.pos.y, b.pos.z, b.type};
+            instances[idx++] = (InstanceData){
+                b.pos.x, b.pos.y, b.pos.z, b.type,
+                1.0f, 1.0f, 1.0f,
+                0.0f, 0.0f
+            };
         }
+    }
+
+    if (entity_count > 0) {
+        idx += world_write_entity_render_blocks(world, instances,
+                                                 idx * ENTITY_INSTANCE_STRIDE_BYTES,
+                                                 total - idx);
     }
     
     *out_highlight_idx = idx++;
@@ -1160,14 +1173,22 @@ static uint32_t fill_instance_buffer(Renderer *r, World *world, const Player *pl
     
     instances[*out_highlight_idx] = (InstanceData){
         highlight ? (float)highlight_cell.x : 0, highlight ? (float)highlight_cell.y : 0,
-        highlight ? (float)highlight_cell.z : 0, HIGHLIGHT_TEXTURE_INDEX
+        highlight ? (float)highlight_cell.z : 0, HIGHLIGHT_TEXTURE_INDEX,
+        1.0f, 1.0f, 1.0f,
+        0.0f, 0.0f
     };
-    instances[*out_crosshair_idx] = (InstanceData){0, 0, 0, CROSSHAIR_TEXTURE_INDEX};
-    instances[*out_inventory_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX};
-    instances[*out_selection_idx] = (InstanceData){0, 0, 0, INVENTORY_SELECTION_TEXTURE_INDEX};
-    instances[*out_bg_idx] = (InstanceData){0, 0, 0, INVENTORY_BG_TEXTURE_INDEX};
-    instances[*out_health_bg_idx] = (InstanceData){0, 0, 0, HEALTH_BAR_INDEX};
-    instances[*out_health_border_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX};
+    instances[*out_crosshair_idx] = (InstanceData){0, 0, 0, CROSSHAIR_TEXTURE_INDEX,
+                                                   1.0f, 1.0f, 1.0f, 0.0f, 0.0f};
+    instances[*out_inventory_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX,
+                                                   1.0f, 1.0f, 1.0f, 0.0f, 0.0f};
+    instances[*out_selection_idx] = (InstanceData){0, 0, 0, INVENTORY_SELECTION_TEXTURE_INDEX,
+                                                   1.0f, 1.0f, 1.0f, 0.0f, 0.0f};
+    instances[*out_bg_idx] = (InstanceData){0, 0, 0, INVENTORY_BG_TEXTURE_INDEX,
+                                            1.0f, 1.0f, 1.0f, 0.0f, 0.0f};
+    instances[*out_health_bg_idx] = (InstanceData){0, 0, 0, HEALTH_BAR_INDEX,
+                                                   1.0f, 1.0f, 1.0f, 0.0f, 0.0f};
+    instances[*out_health_border_idx] = (InstanceData){0, 0, 0, HIGHLIGHT_TEXTURE_INDEX,
+                                                       1.0f, 1.0f, 1.0f, 0.0f, 0.0f};
     
     if (icon_count > 0) {
         player_inventory_icon_instances(player, aspect, &instances[*out_icons_start], icon_count);
@@ -1210,12 +1231,12 @@ static void update_ui_buffers(Renderer *r, const Player *player, float aspect) {
 }
 
 static void record_world_rendering(VkCommandBuffer cmd, Renderer *r, uint32_t img_idx,
-                                    int block_count, uint32_t highlight_idx, bool highlight,
+                                    int world_instance_count, uint32_t highlight_idx, bool highlight,
                                     const PushConstants *pc) {
     VkBuffer bufs[2];
     VkDeviceSize offsets[2] = {0, 0};
     
-    if (block_count > 0) {
+    if (world_instance_count > 0) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_solid);
         vkCmdPushConstants(cmd, r->pipeline_layout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(*pc), pc);
         
@@ -1226,7 +1247,8 @@ static void record_world_rendering(VkCommandBuffer cmd, Renderer *r, uint32_t im
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->pipeline_layout, 0, 1,
                                 &r->descriptor_sets_normal[img_idx], 0, NULL);
         
-        vkCmdDrawIndexed(cmd, (sizeof(BLOCK_INDICES) / sizeof((BLOCK_INDICES)[0])), block_count, 0, 0, 0);
+        vkCmdDrawIndexed(cmd, (sizeof(BLOCK_INDICES) / sizeof((BLOCK_INDICES)[0])),
+                         world_instance_count, 0, 0, 0);
     }
     
     if (highlight) {
@@ -1405,7 +1427,11 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
     uint32_t highlight_idx, crosshair_idx, inventory_idx, selection_idx, bg_idx;
     uint32_t health_bg_idx, health_border_idx, icons_start;
     int block_count = world_total_render_blocks(world);
-    uint32_t icon_count = fill_instance_buffer(r, world, player, aspect, highlight, highlight_cell,
+    uint32_t entity_count = world_get_entity_render_block_count(world);
+    int world_instance_count = block_count + (int)entity_count;
+    uint32_t icon_count = fill_instance_buffer(r, world, player, aspect,
+                                                block_count, entity_count,
+                                                highlight, highlight_cell,
                                                 &highlight_idx, &crosshair_idx, &inventory_idx,
                                                 &selection_idx, &bg_idx,
                                                 &health_bg_idx, &health_border_idx, &icons_start);
@@ -1443,7 +1469,7 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
     
     vkCmdBeginRenderPass(cmd, &rp_begin, VK_SUBPASS_CONTENTS_INLINE);
     
-    record_world_rendering(cmd, r, img_idx, block_count, highlight_idx, highlight, &pc);
+    record_world_rendering(cmd, r, img_idx, world_instance_count, highlight_idx, highlight, &pc);
     
     if (!player->inventory_open) {
         record_crosshair_rendering(cmd, r, img_idx, player, crosshair_idx,

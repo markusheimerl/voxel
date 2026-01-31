@@ -1,5 +1,6 @@
 #include "world.h"
 #include "player.h"
+#include "entity.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -595,6 +596,9 @@ void world_init(World *world, WorldSave *save) {
     memset(world, 0, sizeof(*world));
     world->spawn_position = vec3(0.0f, 4.5f, 0.0f);
     world->save = save;
+    world->entities = NULL;
+    world->entity_count = 0;
+    world->entity_capacity = 0;
 }
 
 void world_destroy(World *world) {
@@ -606,6 +610,7 @@ void world_destroy(World *world) {
         chunk_destroy(chunk);
     }
     free(world->chunks);
+    free(world->entities);
     memset(world, 0, sizeof(*world));
 }
 
@@ -638,6 +643,63 @@ void world_update_chunks(World *world, Vec3 player_pos) {
             ++i;
         }
     }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Entity Management                                                          */
+/* -------------------------------------------------------------------------- */
+
+static void world_ensure_entity_capacity(World *world, int min_capacity) {
+    if (world->entity_capacity >= min_capacity) return;
+
+    int new_cap = world->entity_capacity > 0 ? world->entity_capacity * 2 : 8;
+    while (new_cap < min_capacity) new_cap *= 2;
+
+    Entity *new_entities = realloc(world->entities, (size_t)new_cap * sizeof(Entity));
+    if (!new_entities) die("Failed to allocate entity array");
+
+    world->entities = new_entities;
+    world->entity_capacity = new_cap;
+}
+
+bool world_add_entity(World *world, Entity entity) {
+    if (!world) return false;
+
+    world_ensure_entity_capacity(world, world->entity_count + 1);
+    world->entities[world->entity_count++] = entity;
+    return true;
+}
+
+void world_update_entities(World *world, float delta_time) {
+    if (!world) return;
+
+    for (int i = 0; i < world->entity_count; ++i) {
+        entity_update(&world->entities[i], delta_time);
+        entity_apply_physics(&world->entities[i], world, delta_time);
+    }
+}
+
+uint32_t world_get_entity_render_block_count(const World *world) {
+    if (!world) return 0;
+
+    uint32_t total = 0;
+    for (int i = 0; i < world->entity_count; ++i) {
+        total += entity_get_render_block_count(&world->entities[i]);
+    }
+    return total;
+}
+
+uint32_t world_write_entity_render_blocks(const World *world, void *out_data,
+                                          uint32_t offset, uint32_t max) {
+    if (!world || !out_data) return 0;
+
+    uint32_t written = 0;
+    for (int i = 0; i < world->entity_count && written < max; ++i) {
+        written += entity_write_render_blocks(&world->entities[i], out_data,
+                                               offset + written * ENTITY_INSTANCE_STRIDE_BYTES,
+                                               max - written);
+    }
+    return written;
 }
 
 bool world_get_block_type(World *world, IVec3 pos, uint8_t *type_out) {
