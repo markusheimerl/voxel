@@ -687,7 +687,7 @@ static void init_ui_buffers(Renderer *r, float aspect) {
     float ch_size = 0.02f;
     Vertex ch_verts[4] = {
         {{-ch_size * aspect, 0, 0}, {0, 0}}, {{ ch_size * aspect, 0, 0}, {1, 0}},
-        {{0, -ch_size / aspect, 0}, {0, 0}}, {{0,  ch_size / aspect, 0}, {1, 0}}
+        {{0, -ch_size, 0}, {0, 0}}, {{0,  ch_size, 0}, {1, 0}}
     };
     upload_buffer_data(r->device, r->crosshair.memory, ch_verts, sizeof(ch_verts));
     
@@ -1005,19 +1005,18 @@ static void init_sync_objects(Renderer *r) {
 Renderer *renderer_create(void *display, unsigned long window, uint32_t width, uint32_t height) {
     Renderer *r = calloc(1, sizeof(*r));
     if (!r) die("Failed to allocate renderer");
-    
-    float aspect = (float)height / (float)width;
-    
+
     init_instance_and_surface(r, display, window);
     init_physical_device(r);
     init_device_and_queue(r);
     init_textures(r);
     init_static_buffers(r);
-    init_ui_buffers(r, aspect);
     init_instance_buffer(r);
     init_descriptor_layout(r);
     init_pipeline_layout(r);
     init_swapchain(r, width, height);
+    float aspect = (float)r->extent.height / (float)r->extent.width;
+    init_ui_buffers(r, aspect);
     init_depth_buffer(r);
     init_render_pass(r);
     init_pipelines(r);
