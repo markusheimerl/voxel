@@ -684,10 +684,10 @@ static void init_ui_buffers(Renderer *r, float aspect) {
     create_and_upload_buffer(r, &r->health_bar_border, NULL, sizeof(Vertex) * 80, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     
     /* Initialize crosshair */
-    float ch_size = 0.03f;
+    float ch_size = 0.02f;
     Vertex ch_verts[4] = {
         {{-ch_size * aspect, 0, 0}, {0, 0}}, {{ ch_size * aspect, 0, 0}, {1, 0}},
-        {{0, -ch_size, 0}, {0, 0}}, {{0,  ch_size, 0}, {1, 0}}
+        {{0, -ch_size / aspect, 0}, {0, 0}}, {{0,  ch_size / aspect, 0}, {1, 0}}
     };
     upload_buffer_data(r->device, r->crosshair.memory, ch_verts, sizeof(ch_verts));
     
