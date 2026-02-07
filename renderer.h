@@ -35,6 +35,7 @@ typedef struct {
 
 Renderer *renderer_create(void *display, unsigned long window, uint32_t width, uint32_t height);
 void renderer_destroy(Renderer *renderer);
+void renderer_resize(Renderer *renderer, uint32_t width, uint32_t height);
 void renderer_draw_frame(Renderer *renderer, World *world, const Player *player, Camera *camera,
                          bool highlight, IVec3 highlight_cell);
 

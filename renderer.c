@@ -670,6 +670,56 @@ static void init_static_buffers(Renderer *r) {
     create_and_upload_buffer(r, &r->edge_index, EDGE_INDICES, sizeof(EDGE_INDICES), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
 }
 
+static void update_ui_static_buffers(Renderer *r, float aspect) {
+    /* Update crosshair */
+    float ch_size = 0.02f;
+    Vertex ch_verts[4] = {
+        {{-ch_size * aspect, 0, 0}, {0, 0}}, {{ ch_size * aspect, 0, 0}, {1, 0}},
+        {{0, -ch_size, 0}, {0, 0}}, {{0,  ch_size, 0}, {1, 0}}
+    };
+    upload_buffer_data(r->device, r->crosshair.memory, ch_verts, sizeof(ch_verts));
+
+    /* Update inventory grid */
+    float h_step, v_step;
+    Vertex grid_verts[32];
+    uint32_t grid_count;
+    player_inventory_grid_vertices(aspect, grid_verts, 32, &grid_count, &h_step, &v_step);
+    upload_buffer_data(r->device, r->inventory_grid.memory, grid_verts, grid_count * sizeof(Vertex));
+
+    /* Update crafting UI */
+    Vertex verts[32];
+    uint32_t count;
+    player_crafting_grid_vertices(aspect, verts, 32, &count);
+    upload_buffer_data(r->device, r->crafting_grid.memory, verts, count * sizeof(Vertex));
+
+    player_crafting_arrow_vertices(aspect, verts, 16, &count);
+    upload_buffer_data(r->device, r->crafting_arrow.memory, verts, count * sizeof(Vertex));
+
+    player_crafting_result_slot_vertices(aspect, verts, 16, &count);
+    upload_buffer_data(r->device, r->crafting_result.memory, verts, count * sizeof(Vertex));
+
+    /* Update health bar border (static) */
+    Vertex health_border[80];
+    uint32_t health_border_count;
+    player_health_bar_border_vertices(aspect, health_border, 80, &health_border_count);
+    upload_buffer_data(r->device, r->health_bar_border.memory, health_border,
+                       health_border_count * sizeof(Vertex));
+
+    /* Update health bar background */
+    Player temp_player = {.health = 10};
+    Vertex health_bg[60];
+    uint32_t health_bg_count;
+    player_health_bar_background_vertices(&temp_player, aspect, health_bg, 60, &health_bg_count);
+    upload_buffer_data(r->device, r->health_bar_bg.memory, health_bg,
+                       health_bg_count * sizeof(Vertex));
+
+    /* Update inventory icon quad */
+    Vertex icon_verts[6];
+    uint32_t icon_count;
+    player_inventory_icon_vertices(h_step, v_step, icon_verts, 6, &icon_count);
+    upload_buffer_data(r->device, r->inventory_icon.memory, icon_verts, icon_count * sizeof(Vertex));
+}
+
 static void init_ui_buffers(Renderer *r, float aspect) {
     create_and_upload_buffer(r, &r->crosshair, NULL, sizeof(Vertex) * 4, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     create_and_upload_buffer(r, &r->inventory_grid, NULL, sizeof(Vertex) * 32, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
@@ -682,54 +732,8 @@ static void init_ui_buffers(Renderer *r, float aspect) {
     create_and_upload_buffer(r, &r->crafting_result, NULL, sizeof(Vertex) * 16, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     create_and_upload_buffer(r, &r->health_bar_bg, NULL, sizeof(Vertex) * 60, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
     create_and_upload_buffer(r, &r->health_bar_border, NULL, sizeof(Vertex) * 80, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT);
-    
-    /* Initialize crosshair */
-    float ch_size = 0.03f;
-    Vertex ch_verts[4] = {
-        {{-ch_size * aspect, 0, 0}, {0, 0}}, {{ ch_size * aspect, 0, 0}, {1, 0}},
-        {{0, -ch_size, 0}, {0, 0}}, {{0,  ch_size, 0}, {1, 0}}
-    };
-    upload_buffer_data(r->device, r->crosshair.memory, ch_verts, sizeof(ch_verts));
-    
-    /* Initialize inventory grid */
-    float h_step, v_step;
-    Vertex grid_verts[32];
-    uint32_t grid_count;
-    player_inventory_grid_vertices(aspect, grid_verts, 32, &grid_count, &h_step, &v_step);
-    upload_buffer_data(r->device, r->inventory_grid.memory, grid_verts, grid_count * sizeof(Vertex));
-    
-    /* Initialize crafting UI */
-    Vertex verts[32];
-    uint32_t count;
-    player_crafting_grid_vertices(aspect, verts, 32, &count);
-    upload_buffer_data(r->device, r->crafting_grid.memory, verts, count * sizeof(Vertex));
-    
-    player_crafting_arrow_vertices(aspect, verts, 16, &count);
-    upload_buffer_data(r->device, r->crafting_arrow.memory, verts, count * sizeof(Vertex));
-    
-    player_crafting_result_slot_vertices(aspect, verts, 16, &count);
-    upload_buffer_data(r->device, r->crafting_result.memory, verts, count * sizeof(Vertex));
 
-    /* Initialize health bar border (static) */
-    Vertex health_border[80];
-    uint32_t health_border_count;
-    player_health_bar_border_vertices(aspect, health_border, 80, &health_border_count);
-    upload_buffer_data(r->device, r->health_bar_border.memory, health_border,
-                       health_border_count * sizeof(Vertex));
-
-    /* Initialize health bar background */
-    Player temp_player = {.health = 10};
-    Vertex health_bg[60];
-    uint32_t health_bg_count;
-    player_health_bar_background_vertices(&temp_player, aspect, health_bg, 60, &health_bg_count);
-    upload_buffer_data(r->device, r->health_bar_bg.memory, health_bg,
-                       health_bg_count * sizeof(Vertex));
-    
-    /* Initialize inventory icon quad */
-    Vertex icon_verts[6];
-    uint32_t icon_count;
-    player_inventory_icon_vertices(h_step, v_step, icon_verts, 6, &icon_count);
-    upload_buffer_data(r->device, r->inventory_icon.memory, icon_verts, icon_count * sizeof(Vertex));
+    update_ui_static_buffers(r, aspect);
 }
 
 static void init_instance_buffer(Renderer *r) {
@@ -998,6 +1002,69 @@ static void init_sync_objects(Renderer *r) {
     VK_CHECK(vkCreateFence(r->device, &fence_info, NULL, &r->in_flight));
 }
 
+static void destroy_swapchain_resources(Renderer *r) {
+    if (r->command_buffers) {
+        vkFreeCommandBuffers(r->device, r->command_pool, r->image_count, r->command_buffers);
+        free(r->command_buffers);
+        r->command_buffers = NULL;
+    }
+
+    if (r->descriptor_pool) {
+        vkDestroyDescriptorPool(r->device, r->descriptor_pool, NULL);
+        r->descriptor_pool = VK_NULL_HANDLE;
+    }
+    free(r->descriptor_sets_normal);
+    r->descriptor_sets_normal = NULL;
+    free(r->descriptor_sets_highlight);
+    r->descriptor_sets_highlight = NULL;
+
+    if (r->swapchain_framebuffers) {
+        for (uint32_t i = 0; i < r->image_count; i++) {
+            if (r->swapchain_framebuffers[i]) {
+                vkDestroyFramebuffer(r->device, r->swapchain_framebuffers[i], NULL);
+            }
+        }
+        free(r->swapchain_framebuffers);
+        r->swapchain_framebuffers = NULL;
+    }
+
+    if (r->pipeline_overlay) vkDestroyPipeline(r->device, r->pipeline_overlay, NULL);
+    if (r->pipeline_crosshair) vkDestroyPipeline(r->device, r->pipeline_crosshair, NULL);
+    if (r->pipeline_wireframe) vkDestroyPipeline(r->device, r->pipeline_wireframe, NULL);
+    if (r->pipeline_solid) vkDestroyPipeline(r->device, r->pipeline_solid, NULL);
+    r->pipeline_overlay = VK_NULL_HANDLE;
+    r->pipeline_crosshair = VK_NULL_HANDLE;
+    r->pipeline_wireframe = VK_NULL_HANDLE;
+    r->pipeline_solid = VK_NULL_HANDLE;
+
+    if (r->render_pass) {
+        vkDestroyRenderPass(r->device, r->render_pass, NULL);
+        r->render_pass = VK_NULL_HANDLE;
+    }
+
+    if (r->depth_view) vkDestroyImageView(r->device, r->depth_view, NULL);
+    if (r->depth_image) vkDestroyImage(r->device, r->depth_image, NULL);
+    if (r->depth_memory) vkFreeMemory(r->device, r->depth_memory, NULL);
+    r->depth_view = VK_NULL_HANDLE;
+    r->depth_image = VK_NULL_HANDLE;
+    r->depth_memory = VK_NULL_HANDLE;
+
+    if (r->swapchain_views) {
+        for (uint32_t i = 0; i < r->image_count; i++) {
+            if (r->swapchain_views[i]) {
+                vkDestroyImageView(r->device, r->swapchain_views[i], NULL);
+            }
+        }
+        free(r->swapchain_views);
+        r->swapchain_views = NULL;
+    }
+
+    if (r->swapchain) {
+        vkDestroySwapchainKHR(r->device, r->swapchain, NULL);
+        r->swapchain = VK_NULL_HANDLE;
+    }
+}
+
 /* -------------------------------------------------------------------------- */
 /* Renderer Creation                                                          */
 /* -------------------------------------------------------------------------- */
@@ -1005,19 +1072,18 @@ static void init_sync_objects(Renderer *r) {
 Renderer *renderer_create(void *display, unsigned long window, uint32_t width, uint32_t height) {
     Renderer *r = calloc(1, sizeof(*r));
     if (!r) die("Failed to allocate renderer");
-    
-    float aspect = (float)height / (float)width;
-    
+
     init_instance_and_surface(r, display, window);
     init_physical_device(r);
     init_device_and_queue(r);
     init_textures(r);
     init_static_buffers(r);
-    init_ui_buffers(r, aspect);
     init_instance_buffer(r);
     init_descriptor_layout(r);
     init_pipeline_layout(r);
     init_swapchain(r, width, height);
+    float aspect = (float)r->extent.height / (float)r->extent.width;
+    init_ui_buffers(r, aspect);
     init_depth_buffer(r);
     init_render_pass(r);
     init_pipelines(r);
@@ -1027,6 +1093,26 @@ Renderer *renderer_create(void *display, unsigned long window, uint32_t width, u
     init_sync_objects(r);
     
     return r;
+}
+
+void renderer_resize(Renderer *r, uint32_t width, uint32_t height) {
+    if (!r) return;
+    if (width == 0 || height == 0) return;
+
+    vkDeviceWaitIdle(r->device);
+
+    destroy_swapchain_resources(r);
+
+    init_swapchain(r, width, height);
+    init_depth_buffer(r);
+    init_render_pass(r);
+    init_pipelines(r);
+    init_framebuffers(r);
+    init_descriptor_sets(r);
+    init_command_buffers(r);
+
+    float aspect = (float)r->extent.height / (float)r->extent.width;
+    update_ui_static_buffers(r, aspect);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -1418,6 +1504,9 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
     VkResult result = vkAcquireNextImageKHR(r->device, r->swapchain, UINT64_MAX,
                                              r->image_available, VK_NULL_HANDLE, &img_idx);
     
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        return;
+    }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         die("Failed to acquire swapchain image");
     }
@@ -1504,6 +1593,9 @@ void renderer_draw_frame(Renderer *r, World *world, const Player *player, Camera
     
     result = vkQueuePresentKHR(r->graphics_queue, &present_info);
     
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        return;
+    }
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         die("Failed to present");
     }
