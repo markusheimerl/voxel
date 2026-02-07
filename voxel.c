@@ -161,8 +161,8 @@ static void handle_mouse_button_game(MouseState *ms, IOContext *io,
     }
 }
 
-static void process_events(IOContext *io, Player *player, MouseState *ms, bool *keys,
-                          uint32_t window_width, uint32_t window_height, Camera *camera,
+static void process_events(IOContext *io, Renderer *renderer, Player *player, MouseState *ms, bool *keys,
+                          uint32_t *window_width, uint32_t *window_height, Camera *camera,
                           bool *running, bool *left_click, bool *right_click) {
     *left_click = false;
     *right_click = false;
@@ -175,6 +175,17 @@ static void process_events(IOContext *io, Player *player, MouseState *ms, bool *
         switch (event.type) {
         case IO_EVENT_QUIT:
             *running = false;
+            break;
+
+        case IO_EVENT_RESIZE:
+            if (event.data.resize.width > 0 && event.data.resize.height > 0) {
+                *window_width = event.data.resize.width;
+                *window_height = event.data.resize.height;
+                renderer_resize(renderer, *window_width, *window_height);
+                if (ms->captured) {
+                    ms->first_mouse = true;
+                }
+            }
             break;
             
         case IO_EVENT_KEY_DOWN:
@@ -191,13 +202,13 @@ static void process_events(IOContext *io, Player *player, MouseState *ms, bool *
             mouse_x = (float)event.data.mouse_move.x;
             mouse_y = (float)event.data.mouse_move.y;
             mouse_moved = true;
-            player_update_inventory_mouse_position(player, window_width, window_height,
+            player_update_inventory_mouse_position(player, *window_width, *window_height,
                                                  event.data.mouse_move.x, event.data.mouse_move.y);
             break;
             
         case IO_EVENT_MOUSE_BUTTON:
             if (player->inventory_open) {
-                player_handle_mouse_button_inventory(player, window_width, window_height,
+                player_handle_mouse_button_inventory(player, *window_width, *window_height,
                                                     event.data.mouse_button.x,
                                                     event.data.mouse_button.y,
                                                     event.data.mouse_button.button);
@@ -213,7 +224,7 @@ static void process_events(IOContext *io, Player *player, MouseState *ms, bool *
     }
     
     if (mouse_moved) {
-        mouse_state_process_movement(ms, io, camera, window_width, window_height,
+        mouse_state_process_movement(ms, io, camera, *window_width, *window_height,
                                     mouse_x, mouse_y);
     }
 }
@@ -272,8 +283,8 @@ int main(void) {
         world_update_chunks(&world, player.position);
         
         bool left_click, right_click;
-        process_events(io, &player, &mouse_state, keys,
-                      window_width, window_height, &camera, &running,
+        process_events(io, renderer, &player, &mouse_state, keys,
+                  &window_width, &window_height, &camera, &running,
                       &left_click, &right_click);
         
         float delta_time = time_state_delta(&time_state);
