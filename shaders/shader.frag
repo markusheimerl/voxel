@@ -5,9 +5,9 @@ layout(location = 0) in vec2 fragUV;
 layout(location = 1) flat in uint fragBlockType;
 layout(location = 0) out vec4 outColor;
 
-layout(set = 0, binding = 0) uniform sampler2D texSamplers[9];
+layout(set = 0, binding = 0) uniform sampler2D texSamplers[10];
 
-const uint ITEM_TYPE_COUNT = 9u;
+const uint ITEM_TYPE_COUNT = 10u;
 const uint CROSSHAIR_INDEX = ITEM_TYPE_COUNT;
 const uint INVENTORY_SELECTION_INDEX = ITEM_TYPE_COUNT + 1u;
 const uint INVENTORY_BG_INDEX = ITEM_TYPE_COUNT + 2u;

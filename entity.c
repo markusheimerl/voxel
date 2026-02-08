@@ -23,7 +23,16 @@ typedef struct {
     uint32_t type;
     float rot_x;
     float rot_y;
+    uint32_t part_id;
 } EntityRenderBlock;
+
+enum {
+    ZOMBIE_PART_NONE = 0,
+    ZOMBIE_PART_LEGS = 1,
+    ZOMBIE_PART_TORSO = 2,
+    ZOMBIE_PART_ARMS = 3,
+    ZOMBIE_PART_HEAD = 4
+};
 
 static void zombie_compute_aabb(Vec3 pos, AABB *aabb) {
     aabb->min = vec3(pos.x - ZOMBIE_HALF_WIDTH, pos.y, pos.z - ZOMBIE_HALF_WIDTH);
@@ -260,42 +269,48 @@ static uint32_t zombie_get_render_blocks(const Entity *entity, EntityRenderBlock
     Vec3 local = vec3(-0.13f, LEG_H * 0.5f, 0.0f);
     Vec3 offset = rotate_around_y(local, yaw);
     out[idx++] = (EntityRenderBlock){
-        vec3_add(base, offset), vec3(0.25f, LEG_H, 0.25f), BLOCK_SAND, gait, yaw
+        vec3_add(base, offset), vec3(0.25f, LEG_H, 0.25f), ITEM_ZOMBIE, gait, yaw,
+        ZOMBIE_PART_LEGS
     };
 
     /* Right leg (hip pivot) */
     local = vec3(0.13f, LEG_H * 0.5f, 0.0f);
     offset = rotate_around_y(local, yaw);
     out[idx++] = (EntityRenderBlock){
-        vec3_add(base, offset), vec3(0.25f, LEG_H, 0.25f), BLOCK_SAND, -gait, yaw
+        vec3_add(base, offset), vec3(0.25f, LEG_H, 0.25f), ITEM_ZOMBIE, -gait, yaw,
+        ZOMBIE_PART_LEGS
     };
 
     /* Torso */
     local = vec3(0.0f, LEG_H + TORSO_H * 0.5f, 0.0f);
     offset = rotate_around_y(local, yaw);
     out[idx++] = (EntityRenderBlock){
-        vec3_add(base, offset), vec3(0.5f, TORSO_H, 0.35f), BLOCK_SAND, 0.0f, yaw
+        vec3_add(base, offset), vec3(0.5f, TORSO_H, 0.35f), ITEM_ZOMBIE, 0.0f, yaw,
+        ZOMBIE_PART_TORSO
     };
 
     /* Left arm */
     local = vec3(-0.275f, LEG_H + TORSO_H * 0.88f, 0.35f);
     offset = rotate_around_y(local, yaw);
     out[idx++] = (EntityRenderBlock){
-        vec3_add(base, offset), vec3(0.16f, 0.16f, 0.7f), BLOCK_SAND, 0.0f, yaw
+        vec3_add(base, offset), vec3(0.16f, 0.16f, 0.7f), ITEM_ZOMBIE, 0.0f, yaw,
+        ZOMBIE_PART_ARMS
     };
 
     /* Right arm */
     local = vec3(0.275f, LEG_H + TORSO_H * 0.88f, 0.35f);
     offset = rotate_around_y(local, yaw);
     out[idx++] = (EntityRenderBlock){
-        vec3_add(base, offset), vec3(0.16f, 0.16f, 0.7f), BLOCK_SAND, 0.0f, yaw
+        vec3_add(base, offset), vec3(0.16f, 0.16f, 0.7f), ITEM_ZOMBIE, 0.0f, yaw,
+        ZOMBIE_PART_ARMS
     };
 
     /* Head */
     local = vec3(0.0f, LEG_H + TORSO_H + HEAD_H * 0.5f, 0.0f);
     offset = rotate_around_y(local, yaw);
     out[idx++] = (EntityRenderBlock){
-        vec3_add(base, offset), vec3(0.4f, HEAD_H, 0.4f), BLOCK_SAND, 0.0f, yaw
+        vec3_add(base, offset), vec3(0.4f, HEAD_H, 0.4f), ITEM_ZOMBIE, 0.0f, yaw,
+        ZOMBIE_PART_HEAD
     };
 
     return idx;
@@ -389,17 +404,18 @@ uint32_t entity_write_render_blocks(const Entity *entity, void *out_data,
     /* Copy to output buffer at offset */
     uint8_t *dest = (uint8_t *)out_data + offset;
     for (uint32_t i = 0; i < count && i < max; ++i) {
-        /* Format: x, y, z, type, sx, sy, sz, rot_x, rot_y */
+        /* Format: x, y, z, type, part_id, sx, sy, sz, rot_x, rot_y */
         float *f = (float *)dest;
         f[0] = blocks[i].position.x;
         f[1] = blocks[i].position.y;
         f[2] = blocks[i].position.z;
         ((uint32_t *)dest)[3] = blocks[i].type;
-        f[4] = blocks[i].scale.x;
-        f[5] = blocks[i].scale.y;
-        f[6] = blocks[i].scale.z;
-        f[7] = blocks[i].rot_x;
-        f[8] = blocks[i].rot_y;
+        ((uint32_t *)dest)[4] = blocks[i].part_id;
+        f[5] = blocks[i].scale.x;
+        f[6] = blocks[i].scale.y;
+        f[7] = blocks[i].scale.z;
+        f[8] = blocks[i].rot_x;
+        f[9] = blocks[i].rot_y;
         dest += ENTITY_INSTANCE_STRIDE_BYTES;
     }
 

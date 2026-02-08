@@ -127,8 +127,8 @@ static void player_respawn(Player *player, const World *world) {
 static void append_line(Vertex *verts, uint32_t *count, uint32_t max,
                         float x0, float y0, float x1, float y1) {
     if (*count + 2 > max) return;
-    verts[(*count)++] = (Vertex){{x0, y0, 0.0f}, {0.0f, 0.0f}};
-    verts[(*count)++] = (Vertex){{x1, y1, 0.0f}, {0.0f, 0.0f}};
+    verts[(*count)++] = (Vertex){{x0, y0, 0.0f}, {0.0f, 0.0f}, 0};
+    verts[(*count)++] = (Vertex){{x1, y1, 0.0f}, {0.0f, 0.0f}, 0};
 }
 
 static void append_digit(Vertex *verts, uint32_t *count, uint32_t max,
@@ -1006,26 +1006,26 @@ void player_inventory_background_vertices(float aspect, Vertex *out_vertices,
     InventoryLayout layout = calculate_layout(aspect);
     uint32_t count = 0;
     
-    out_vertices[count++] = (Vertex){{layout.inv_left, layout.inv_top, 0}, {0, 0}};
-    out_vertices[count++] = (Vertex){{layout.inv_right, layout.inv_bottom, 0}, {1, 1}};
-    out_vertices[count++] = (Vertex){{layout.inv_right, layout.inv_top, 0}, {1, 0}};
-    out_vertices[count++] = (Vertex){{layout.inv_left, layout.inv_top, 0}, {0, 0}};
-    out_vertices[count++] = (Vertex){{layout.inv_left, layout.inv_bottom, 0}, {0, 1}};
-    out_vertices[count++] = (Vertex){{layout.inv_right, layout.inv_bottom, 0}, {1, 1}};
+    out_vertices[count++] = (Vertex){{layout.inv_left, layout.inv_top, 0}, {0, 0}, 0};
+    out_vertices[count++] = (Vertex){{layout.inv_right, layout.inv_bottom, 0}, {1, 1}, 0};
+    out_vertices[count++] = (Vertex){{layout.inv_right, layout.inv_top, 0}, {1, 0}, 0};
+    out_vertices[count++] = (Vertex){{layout.inv_left, layout.inv_top, 0}, {0, 0}, 0};
+    out_vertices[count++] = (Vertex){{layout.inv_left, layout.inv_bottom, 0}, {0, 1}, 0};
+    out_vertices[count++] = (Vertex){{layout.inv_right, layout.inv_bottom, 0}, {1, 1}, 0};
     
-    out_vertices[count++] = (Vertex){{layout.craft_left, layout.craft_top, 0}, {0, 0}};
-    out_vertices[count++] = (Vertex){{layout.craft_right, layout.craft_bottom, 0}, {1, 1}};
-    out_vertices[count++] = (Vertex){{layout.craft_right, layout.craft_top, 0}, {1, 0}};
-    out_vertices[count++] = (Vertex){{layout.craft_left, layout.craft_top, 0}, {0, 0}};
-    out_vertices[count++] = (Vertex){{layout.craft_left, layout.craft_bottom, 0}, {0, 1}};
-    out_vertices[count++] = (Vertex){{layout.craft_right, layout.craft_bottom, 0}, {1, 1}};
+    out_vertices[count++] = (Vertex){{layout.craft_left, layout.craft_top, 0}, {0, 0}, 0};
+    out_vertices[count++] = (Vertex){{layout.craft_right, layout.craft_bottom, 0}, {1, 1}, 0};
+    out_vertices[count++] = (Vertex){{layout.craft_right, layout.craft_top, 0}, {1, 0}, 0};
+    out_vertices[count++] = (Vertex){{layout.craft_left, layout.craft_top, 0}, {0, 0}, 0};
+    out_vertices[count++] = (Vertex){{layout.craft_left, layout.craft_bottom, 0}, {0, 1}, 0};
+    out_vertices[count++] = (Vertex){{layout.craft_right, layout.craft_bottom, 0}, {1, 1}, 0};
     
-    out_vertices[count++] = (Vertex){{layout.result_left, layout.result_top, 0}, {0, 0}};
-    out_vertices[count++] = (Vertex){{layout.result_right, layout.result_bottom, 0}, {1, 1}};
-    out_vertices[count++] = (Vertex){{layout.result_right, layout.result_top, 0}, {1, 0}};
-    out_vertices[count++] = (Vertex){{layout.result_left, layout.result_top, 0}, {0, 0}};
-    out_vertices[count++] = (Vertex){{layout.result_left, layout.result_bottom, 0}, {0, 1}};
-    out_vertices[count++] = (Vertex){{layout.result_right, layout.result_bottom, 0}, {1, 1}};
+    out_vertices[count++] = (Vertex){{layout.result_left, layout.result_top, 0}, {0, 0}, 0};
+    out_vertices[count++] = (Vertex){{layout.result_right, layout.result_bottom, 0}, {1, 1}, 0};
+    out_vertices[count++] = (Vertex){{layout.result_right, layout.result_top, 0}, {1, 0}, 0};
+    out_vertices[count++] = (Vertex){{layout.result_left, layout.result_top, 0}, {0, 0}, 0};
+    out_vertices[count++] = (Vertex){{layout.result_left, layout.result_bottom, 0}, {0, 1}, 0};
+    out_vertices[count++] = (Vertex){{layout.result_right, layout.result_bottom, 0}, {1, 1}, 0};
     
     *out_count = count;
 }
@@ -1106,6 +1106,7 @@ uint32_t player_inventory_icon_instances(const Player *player, float aspect,
             float center_y = layout.inv_top - layout.cell_h * (0.5f + row);
             out_instances[icon_index] = (InstanceData){
                 center_x, center_y, 0.0f, (uint32_t)player->inventory[slot],
+                0u,
                 1.0f, 1.0f, 1.0f,
                 0.0f, 0.0f
             };
@@ -1125,6 +1126,7 @@ uint32_t player_inventory_icon_instances(const Player *player, float aspect,
             float center_y = layout.craft_top - craft_v_step * (0.5f + row);
             out_instances[icon_index] = (InstanceData){
                 center_x, center_y, 0.0f, (uint32_t)player->crafting_grid[slot],
+                0u,
                 1.0f, 1.0f, 1.0f,
                 0.0f, 0.0f
             };
@@ -1140,6 +1142,7 @@ uint32_t player_inventory_icon_instances(const Player *player, float aspect,
                 float center_y = (layout.result_bottom + layout.result_top) * 0.5f;
                 out_instances[icon_index] = (InstanceData){
                     center_x, center_y, 0.0f, (uint32_t)craft_result.result_type,
+                    0u,
                     1.0f, 1.0f, 1.0f,
                     0.0f, 0.0f
                 };
@@ -1155,6 +1158,7 @@ uint32_t player_inventory_icon_instances(const Player *player, float aspect,
                 player->inventory_mouse_ndc_y,
                 0.0f,
                 (uint32_t)player->inventory_held_type,
+                0u,
                 1.0f, 1.0f, 1.0f,
                 0.0f, 0.0f
             };
@@ -1259,12 +1263,12 @@ void player_health_bar_background_vertices(const Player *player, float aspect,
         
         if (count + 6 > max_vertices) break;
         
-        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}};
-        out_vertices[count++] = (Vertex){{right, bottom, 0}, {1, 0}};
-        out_vertices[count++] = (Vertex){{right, top, 0}, {1, 1}};
-        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}};
-        out_vertices[count++] = (Vertex){{right, top, 0}, {1, 1}};
-        out_vertices[count++] = (Vertex){{left, top, 0}, {0, 1}};
+        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}, 0};
+        out_vertices[count++] = (Vertex){{right, bottom, 0}, {1, 0}, 0};
+        out_vertices[count++] = (Vertex){{right, top, 0}, {1, 1}, 0};
+        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}, 0};
+        out_vertices[count++] = (Vertex){{right, top, 0}, {1, 1}, 0};
+        out_vertices[count++] = (Vertex){{left, top, 0}, {0, 1}, 0};
     }
     
     *out_count = count;
@@ -1294,17 +1298,17 @@ void player_health_bar_border_vertices(float aspect, Vertex *out_vertices,
         
         if (count + 8 > max_vertices) break;
         
-        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}};
-        out_vertices[count++] = (Vertex){{right, bottom, 0}, {0, 0}};
+        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}, 0};
+        out_vertices[count++] = (Vertex){{right, bottom, 0}, {0, 0}, 0};
         
-        out_vertices[count++] = (Vertex){{right, bottom, 0}, {0, 0}};
-        out_vertices[count++] = (Vertex){{right, top, 0}, {0, 0}};
+        out_vertices[count++] = (Vertex){{right, bottom, 0}, {0, 0}, 0};
+        out_vertices[count++] = (Vertex){{right, top, 0}, {0, 0}, 0};
         
-        out_vertices[count++] = (Vertex){{right, top, 0}, {0, 0}};
-        out_vertices[count++] = (Vertex){{left, top, 0}, {0, 0}};
+        out_vertices[count++] = (Vertex){{right, top, 0}, {0, 0}, 0};
+        out_vertices[count++] = (Vertex){{left, top, 0}, {0, 0}, 0};
         
-        out_vertices[count++] = (Vertex){{left, top, 0}, {0, 0}};
-        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}};
+        out_vertices[count++] = (Vertex){{left, top, 0}, {0, 0}, 0};
+        out_vertices[count++] = (Vertex){{left, bottom, 0}, {0, 0}, 0};
     }
     
     *out_count = count;

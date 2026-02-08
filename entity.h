@@ -42,7 +42,7 @@ typedef struct Entity {
 /* Rendering Layout                                                            */
 /* -------------------------------------------------------------------------- */
 
-enum { ENTITY_INSTANCE_STRIDE_BYTES = sizeof(float) * 9 };
+enum { ENTITY_INSTANCE_STRIDE_BYTES = sizeof(float) * 8 + sizeof(uint32_t) * 2 };
 
 /* -------------------------------------------------------------------------- */
 /* Public API                                                                 */

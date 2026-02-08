@@ -22,6 +22,7 @@ typedef enum {
     BLOCK_LEAVES = 6,
     BLOCK_PLANKS = 7,
     ITEM_STICK = 8,
+    ITEM_ZOMBIE = 9,
     ITEM_TYPE_COUNT
 } BlockType;
 

@@ -19,11 +19,13 @@ typedef struct Camera Camera;
 typedef struct {
     Vec3 pos;
     Vec2 uv;
+    uint32_t face_id;
 } Vertex;
 
 typedef struct {
     float x, y, z;
     uint32_t type;
+    uint32_t part_id;
     float sx, sy, sz;
     float rot_x;
     float rot_y;
